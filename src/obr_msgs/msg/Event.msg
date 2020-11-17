@@ -1,0 +1,8 @@
+uint8 event
+uint8 NOT_SELECTED = 0
+uint8 ACCELERATION = 1
+uint8 SKIDPAD = 2
+uint8 AUTOCROSS = 3
+uint8 TRACK_DRIVE = 4
+uint8 BRAKE_TEST = 5
+uint8 INSPECTION = 6
