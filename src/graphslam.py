@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import rospy
-from 
+#from
 import time
 
 rospy.init_node('graphSLAM', anonymous=True)
