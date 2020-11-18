@@ -1,6 +1,4 @@
-from src.simulation.frame2d import Frame2D
-
-from src.simulation.Track import Track, Coord2D
+from src.simulation.Track import Track, Cone
 
 import math
 import numpy as np
@@ -36,25 +34,20 @@ import time
 
 
 class SimWorld:
-    def __init__(self, m, pos):
-        self.map = m
+    def __init__(self, t, pos: np.array):
+        self.track = t
         self._pos = pos
         self._s = 0
         self._sCommand = 0
         self.waitTime = 0.05
-        self._cone_visibility = self._init_landmarks(m.landmarks)
-
-    def _init_landmarks(self, landmarks):
-        for row in landmarks:
-            row.append(False)
-        return landmarks
+        self._cone_visibility = t.landmarks
 
     def _dont_touch__pos(self):
         return self._pos
 
     def _dont_touch__step(self):
-        x = self._pos.x()
-        y = self._pos.y()
+        x = self._pos[0,2]
+        y = self._pos[1,2]
 
         s = self._s * self.waitTime
         a = s / (np.exp(4.44265125649))
@@ -70,20 +63,20 @@ class SimWorld:
         # multiplicative noise on x and a, scaled by acceleration, to simulate slippage
         x = x + x * np.random.normal(0, min(0.5, 0.0001 * accel))
         a = a + a * np.random.normal(0, min(0.5, 0.0001 * accel))
-        f = Frame2D.fromXYA(x, y, a)
-
-        self._pos = self._pos.mult(f)
+        #f = Frame2D.fromXYA(x, y, a)
+        f = np.array([[math.cos(a), -math.sin(a), x], [math.sin(a), math.cos(a), y], [0., 0.,1.]])
+        self._pos = self._pos.dot(f)
 
         for cone in self._cone_visibility:
-            cone[3] = self._compute_cone_is_visible(cone)
-        #TODO change for cone sensor
+            cone.visible = self._compute_cone_is_visible(cone)
 
         self._s = 0.9 * self._s + 0.1 * self._sCommand
 
-    #TODO _compute_cone_is_visible
-    def _compute_cone_is_visible(self, cone):
-        relativePose = self._pos.inverse().mult(self.map.landmarks[cone])
-        angle = math.atan2(relativePose.y(), relativePose.x())
+    def _compute_cone_is_visible(self, cone: Cone):
+
+        relativePose = np.linalg.inv(self._pos).dot(cone.pos)
+
+        angle = math.atan2(relativePose[1,2], relativePose[0,2])
         midAngle = 30.0 / 180.0 * math.pi
         relativeAngle = abs(angle) / midAngle
         relativeTolerance = 0.1
@@ -94,7 +87,7 @@ class SimWorld:
         else:
             angleVisibilityProb = 0.99
 
-        distance = math.sqrt(relativePose.y() * relativePose.y() + relativePose.x() * relativePose.x())
+        distance = math.sqrt(relativePose[1,2] * relativePose[1,2] + relativePose[0,2] * relativePose[0,2])
         minDistance = 100
         minTolerance = 50
         maxDistance = 600
@@ -116,33 +109,38 @@ class SimWorld:
             return True
         return False
 
-    def cone_is_visible(self, coneID):
-        return self._cone_visibility[coneID]
+    def cone_is_visible(self, cone):
+        return self._cone_visibility[cone]
 
     def drive_wheel_motors(self, wheel_speed):
         self._sCommand = max(-100, min(wheel_speed, 100))
 
-    def cone_pose_relative(self, coneID):
-        if not self.cone_is_visible(coneID):
-            return Frame2D()
+    def cone_pose_relative(self, cone: Cone):
+        if not self.cone_is_visible(cone):
+            return np.identity(3)
 
-        relativePose = self._pos.inverse().mult(self.map.landmarks[coneID])
+        relativePose = np.linalg.inv(self._pos).dot(cone.pos)
 
-        distance = math.sqrt(relativePose.y() * relativePose.y() + relativePose.x() * relativePose.x())
+        distance = math.sqrt(relativePose[1,2] * relativePose[1,2] + relativePose[0,2] * relativePose[0,2])
 
         dx = np.random.normal(0, 5) + np.random.normal(0, 5) * (distance / 200)
         dy = np.random.normal(0, 3) + np.random.normal(0, 3) * (distance / 200)
         da = np.random.normal(0, 0.05)
 
-        sensedRelative = Frame2D.fromXYA(relativePose.x() + dx, relativePose.y() + dy, relativePose.angle() + da)
+        da2dMatrix = np.array([[math.cos(da), -math.sin(da)], [math.sin(da), math.cos(da)]])
+        relativedx = relativePose[0,2] + dx
+        relativedy = relativePose[1,2] + dy
+        relativeda = relativePose[0:2,0:2] + da2dMatrix
+
+        sensedRelative = np.array([[relativeda[0,0], relativeda[0,1], relativedx], [relativeda[1,0], relativeda[1,1], relativedy], [0., 0.,1.]])
 
         return sensedRelative
 
-    def cone_pose_global(self, coneID):
-        if not self.cone_is_visible(coneID):
-            return Frame2D()
+    def cone_pose_global(self, cone):
+        if not self.cone_is_visible(cone):
+            return np.identity(3)
 
-        return self._pos.mult(self.cone_pose_relative(coneID))
+        return self._pos.dot(self.cone_pose_relative(cone))
 
     def wheel_speed(self):
         if random.random() < 0.05:
@@ -152,7 +150,7 @@ class SimWorld:
 def runWorld(w: SimWorld, finished):
     while not finished.is_set():
         t0 = time.time()
-        w.dont_touch__step()
+        w._dont_touch__step()
         t1 = time.time()
         timeTaken = t1 - t0
         if timeTaken < w.waitTime:
