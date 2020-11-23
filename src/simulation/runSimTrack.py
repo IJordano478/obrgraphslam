@@ -14,27 +14,14 @@ import time
 
 # this data structure represents the map
 m = loadTrack("Oval.csv")
-
-# noise injected in re-sampling process to avoid multiple exact duplications of a particle
-#xyaResampleVar = np.diag([300, 300, 0.5 * math.pi / 180])
-# note here: instead of creating new gaussian random numbers every time, which is /very/ expensive,
-# 	precompute a large table of them an recycle. GaussianTable does that internally
-#xyaResampleNoise = GaussianTable(np.zeros([3]), xyaResampleVar, 10000)
-
-# Motor error model
-#cozmoOdomNoiseX = 0.2
-#cozmoOdomNoiseY = 0.2
-#cozmoOdomNoiseTheta = 0.001
-#xyaNoiseVar = np.diag([cozmoOdomNoiseX, cozmoOdomNoiseY, cozmoOdomNoiseTheta])
-#xyaNoise = GaussianTable(np.zeros([3]), xyaNoiseVar, 10000)
-
 currentPose = transformationMat(0,0,0)
 TargetPose = transformationMat(0,0,0)
 
 def plotRobot(pos: np.array, colour="orange", existingPlot=None):
     scale = 0.005
-    xy = np.array([[-150, -150, -90, -60, -10, 40, 70, 90, 130, 130, 90, 70, 40, -10, -60, -90, -150],
-                   [20, -20, -40, -40, -25, -25, -40, -40, -20, 20, 40, 40, 25, 25, 40, 40, 20, ]])
+    xy = np.array([[150, 150, 90, 60, 10, -40, -70, -90, -130, -130, -90, -70, -40,  10,  60,  90, 150],
+                   [-20, 20,  40, 40, 25,  25,  40,  40,   20,  -20, -40, -40, -25, -25, -40, -40, -20]])
+
     ones = np.ones((1,17))
     xy = xy*scale
     xy = np.vstack((xy, ones))
@@ -99,7 +86,6 @@ def runPlotLoop(simWorld: SimWorld, finished):
 
         plt.draw()
         plt.pause(0.01)
-
         time.sleep(0.01)
 
 
@@ -112,10 +98,10 @@ def runMainLoop(simWorld: SimWorld, finished):
         "B": transformationMat(5, 16, math.pi),
         "C": transformationMat(2, 14, math.pi*3/2),
         "D": transformationMat(2, 9, math.pi*3/2),
-        "E": transformationMat(2, 3,  math.pi*3/2),
+        "E": transformationMat(2, 4,  math.pi*3/2),
         "F": transformationMat(5, 2,  math.pi*2),
-        "G": transformationMat(8, 3,  math.pi/2),
-        "H": transformationMat(8, 9, math.pi/2)    }
+        "G": transformationMat(8, 4,  math.pi/2),
+        "H": transformationMat(8, 9, math.pi/2)}
     currentTarget = pathNodes["A"]
     time.sleep(5)
 
@@ -133,7 +119,9 @@ def runMainLoop(simWorld: SimWorld, finished):
                 #print("Changing target")
                 break
 
-        #print("GPS:", simWorld.sensor_gps())
+        print("GPS:", simWorld.sensor_gps())
+        print("Speed:", simWorld.sensor_left_speed(), ",", simWorld.sensor_right_speed())
+        print("Cones:", simWorld.sensor_camera())
         #print("POS:", currentPose[:,2].round())
         #print("Target d:", X - pathNodes[key][0, 2], " ", Y - pathNodes[key][1, 2])
         # Set route
