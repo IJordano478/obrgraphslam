@@ -1,6 +1,8 @@
 import asyncio
 
 from src.simulation.Track import Track, plotTrack, loadTrack
+from src.simulation.variables import *
+from src.simulation.driving_commands import *
 from matplotlib import pyplot as plt
 #from cozmo_interface import *
 from src.simulation.sim_world import *
@@ -26,21 +28,16 @@ m = loadTrack("Oval.csv")
 #xyaNoiseVar = np.diag([cozmoOdomNoiseX, cozmoOdomNoiseY, cozmoOdomNoiseTheta])
 #xyaNoise = GaussianTable(np.zeros([3]), xyaNoiseVar, 10000)
 
-currentPose = np.identity(3)
-
+currentPose = transformationMat(0,0,0)
+TargetPose = transformationMat(0,0,0)
 
 def plotRobot(pos: np.array, colour="orange", existingPlot=None):
-    #xy = np.array([[3, 3.5, 3.5, 3, -3, -3, 3],
-    #               [2, 1.5, -1.5, -2, -2, 2, 2],
-    #               [1, 1, 1, 1, 1, 1, 1]])
     scale = 0.005
-    xy = np.array([[20, -20, -40, -40, -25, -25, -40, -40, -20,    20,  40,  40,  25, 25, 40, 40, 20],
-                   [150,  150,  90,  60,  10, -40, -70, -90, -130, -130, -90, -70, -40, 10, 60, 90, 150]])
-    ones = np.array([[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]])
+    xy = np.array([[-150, -150, -90, -60, -10, 40, 70, 90, 130, 130, 90, 70, 40, -10, -60, -90, -150],
+                   [20, -20, -40, -40, -25, -25, -40, -40, -20, 20, 40, 40, 25, 25, 40, 40, 20, ]])
+    ones = np.ones((1,17))
     xy = xy*scale
     xy = np.vstack((xy, ones))
-    #print(xy)
-    #breakpoint()
     xy = np.matmul(pos, xy)
     if existingPlot is not None:
         existingPlot.set_xdata(xy[0, :])
@@ -50,7 +47,6 @@ def plotRobot(pos: np.array, colour="orange", existingPlot=None):
     else:
         line = plt.plot(xy[0, :], xy[1, :], colour)
         return line[0]
-
 
 def plotLandmark(cone: Cone, color="orange", existingPlot=None):
     xy = np.array([[25, -25, -25, 25, 25],
@@ -86,7 +82,7 @@ def runPlotLoop(simWorld: SimWorld, finished):
 
     plotTrack(ax, m, True)
 
-    robotPlot = plotRobot(simWorld._dont_touch__pos())
+    robotPlot = plotRobot(simWorld.sim_get_pos())
     plt.pause(0.01)
     landmarkPlots = []
     for i in range(0, len(simWorld._cone_visibility)):
@@ -96,7 +92,7 @@ def runPlotLoop(simWorld: SimWorld, finished):
     t = 0
     while not finished.is_set():
         # update plot
-        plotRobot(simWorld._dont_touch__pos(), existingPlot=robotPlot)
+        plotRobot(simWorld.sim_get_pos(), existingPlot=robotPlot)
         plt.pause(0.01)
         for i in range(0, len(simWorld._cone_visibility)):
             plotLandmark(simWorld._cone_visibility[i], existingPlot=landmarkPlots[i])
@@ -108,7 +104,67 @@ def runPlotLoop(simWorld: SimWorld, finished):
 
 
 def runMainLoop(simWorld: SimWorld, finished):
+    global currentPose
+    global currentTarget
+
+    pathNodes = {
+        "A": transformationMat(8, 14, math.pi/2),
+        "B": transformationMat(5, 16, math.pi),
+        "C": transformationMat(2, 14, math.pi*3/2),
+        "D": transformationMat(2, 9, math.pi*3/2),
+        "E": transformationMat(2, 3,  math.pi*3/2),
+        "F": transformationMat(5, 2,  math.pi*2),
+        "G": transformationMat(8, 3,  math.pi/2),
+        "H": transformationMat(8, 9, math.pi/2)    }
+    currentTarget = pathNodes["A"]
+    time.sleep(5)
+
+    # main loop
+
+    while (True):
+        currentPose = simWorld.sim_get_pos()
+        X = currentPose[0, 2]
+        Y = currentPose[1, 2]
+
+        keys = list(pathNodes.keys())
+        for key_index, key in enumerate(keys):
+            if (X - pathNodes[key][0, 2]) ** 2 + (Y - pathNodes[key][1, 2]) ** 2 < 0.25:
+                currentTarget = pathNodes[keys[(key_index + 1) % len(keys)]]
+                #print("Changing target")
+                break
+
+        #print("GPS:", simWorld.sensor_gps())
+        #print("POS:", currentPose[:,2].round())
+        #print("Target d:", X - pathNodes[key][0, 2], " ", Y - pathNodes[key][1, 2])
+        # Set route
+        relativeTarget = np.matmul(np.linalg.inv(currentPose), currentTarget)
+        velocity = target_pose_to_velocity_spline(relativeTarget)
+        trackSpeed = velocity_to_track_speed(velocity[0], velocity[1])
+        simWorld.drive_wheel_motors(trackSpeed[0], trackSpeed[1])
+        time.sleep(0.2)
+
+        # Set currentPose
+        delta = track_speed_to_pose_change(trackSpeed[0], trackSpeed[1], 0.2)
+        currentPose = np.matmul(currentPose,delta)
+    # Cozmo is at target
+    simWorld.drive_wheel_motors(0, 0)
     print("finished")
+
+
+# def runMainLoop(simWorld: SimWorld, finished):
+#     global currentPose
+#     global currentTarget
+#
+#     while (True):
+#
+#         simWorld.drive_wheel_motors(1, 1)
+#         time.sleep(5)
+#         simWorld.drive_wheel_motors(1, 5)
+#         time.sleep(1)
+#         simWorld.drive_wheel_motors(1, 1)
+#         time.sleep(2)
+#         simWorld.drive_wheel_motors(1, 5)
+#         time.sleep(1)
 
 
 def cozmo_program(simWorld: SimWorld):
@@ -116,7 +172,7 @@ def cozmo_program(simWorld: SimWorld):
     print("Starting simulation. Press Q to exit", end="\r\n")
     threading.Thread(target=runWorld, args=(simWorld, finished)).start()
     #threading.Thread(target=WaitForChar, args=(finished, '[Qq]')).start()
-    #threading.Thread(target=runMainLoop, args=(simWorld, finished)).start()
+    threading.Thread(target=runMainLoop, args=(simWorld, finished)).start()
     # running the plot loop in a thread is not thread-safe because matplotlib
     # uses tkinter, which in turn has a threading quirk that makes it
     # non-thread-safe outside the python main program.
@@ -129,8 +185,10 @@ def cozmo_program(simWorld: SimWorld):
 # NOTE: this code allows to specify the initial position of Cozmo on the map
 startX = 8.0
 startY = 5.0
-startA = 0
-startPos = np.array([[math.cos(startA), -math.sin(startA), startX], [math.sin(startA), math.cos(startA), startY], [0., 0.,1.]])
+startA = math.pi/2
+startPos = transformationMat(startX, startY, startA)
+currentPose = startPos
+
 simWorld = SimWorld(m, startPos)
 
 cozmo_program(simWorld)

@@ -37,14 +37,16 @@ class Cone:
         self.visible = False
 
 def loadTrack(trackName):
+    scale = 1
 
     coneArray = []
     with open(trackName, 'r') as file:
         reader = csv.reader(file, delimiter=',')
         for row in reader:
-            conePos = np.array([[math.cos(0), -math.sin(0), float(row[0])], [math.sin(0), math.cos(0), float(row[1])], [0., 0.,1.]])
+            conePos = np.array([[math.cos(0), -math.sin(0), float(row[0])*scale], [math.sin(0), math.cos(0), float(row[1])*scale], [0., 0.,1.]])
             coneColour = row[2]
             coneArray.append(Cone(conePos, coneColour))
+
 
     minX = coneArray[0].pos[0,2]
     minY = coneArray[0].pos[1,2]
