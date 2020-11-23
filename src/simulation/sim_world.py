@@ -42,8 +42,9 @@ class SimWorld:
         x = x + x * np.random.normal(0, min(0.5, 0.0001 * accel))
         a = a + a * np.random.normal(0, min(0.5, 0.0001 * accel))
 
-        f = np.array([[math.cos(a), -math.sin(a), x], [math.sin(a), math.cos(a), y], [0., 0.,1.]])
-        self._pos = self._pos.dot(f)
+        f = transformationMat(x, y, a)
+        #f = np.array([[math.cos(a), -math.sin(a), x], [math.sin(a), math.cos(a), y], [0., 0.,1.]])
+        self._pos = np.matmul(self._pos, f)
         for cone in self._cone_visibility:
             cone.visible = self._compute_cone_is_visible(cone)
 
@@ -52,11 +53,15 @@ class SimWorld:
 
     def _compute_cone_is_visible(self, cone: Cone):
 
-        relativePose = np.linalg.inv(self._pos).dot(cone.pos)
+        relativePose = np.matmul(np.linalg.inv(self._pos), cone.pos)
 
-        angle = get2DMatAngle(relativePose)
-        midAngle = 30.0 / 180.0 * math.pi
+        angle = math.atan2(relativePose[1,2], relativePose[0,2])
+
+        # camera field of view (degrees)
+        FOV = 90.0
+        midAngle = FOV / 180.0 * math.pi
         relativeAngle = abs(angle) / midAngle
+
         relativeTolerance = 0.1
         if 1 + relativeTolerance < relativeAngle:
             angleVisibilityProb = 0.0
@@ -81,8 +86,7 @@ class SimWorld:
         else:
             distanceProb = 0.0
 
-        p = angleVisibilityProb * distanceProb
-
+        p = angleVisibilityProb #* distanceProb
         if random.random() < p:
             return True
         return False
@@ -118,24 +122,24 @@ class SimWorld:
     def left_wheel_speed(self):
         if random.random() < 0.05:
              return 0
-        return float(int(self._s1))
+        return float(self._s1)
 
     def right_wheel_speed(self):
         if random.random() < 0.05:
              return 0
-        return float(int(self._s2))
+        return float(self._s2)
 
 #===================SENSORS=========================================
 
     def sensor_left_speed(self):
         if random.random() < 0.05:
              return 0
-        return float(int(self._s2))
+        return round(float(self._s1),3)
 
     def sensor_right_speed(self):
         if random.random() < 0.05:
              return 0
-        return float(int(self._s2))
+        return round(float(self._s2),3)
 
     def sensor_gps(self):
         if random.random() < 0.05:
@@ -147,7 +151,16 @@ class SimWorld:
         return 0
 
     def sensor_camera(self):
-        return
+        detected = np.array([])
+        for cone in self._cone_visibility:
+            if(cone.visible==True):
+                if detected.size == 0:
+                    detected = np.array([[cone.pos[0,2]],[cone.pos[1,2]]])
+                    #print(detected)
+                else:
+                    new = np.array([[cone.pos[0, 2]], [cone.pos[1, 2]]])
+                    detected = np.concatenate((detected,new), axis=1)
+        return detected
 
 
 def runWorld(w: SimWorld, finished):
