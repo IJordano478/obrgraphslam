@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
-import math
-import numpy as np
 from src.simulation.variables import *
 
-wheelDistance = 0.0001
+import math
+import numpy as np
+
+
+wheelDistance = conf_wheelDistance
 
 cozmoOdomNoiseX = 0.01
 cozmoOdomNoiseY = 0.01
