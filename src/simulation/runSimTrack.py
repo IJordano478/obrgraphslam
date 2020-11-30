@@ -1,12 +1,11 @@
-import asyncio
-
 from src.simulation.Track import Track, plotTrack, loadTrack
 from src.simulation.variables import *
 from src.simulation.driving_commands import *
-from matplotlib import pyplot as plt
-#from cozmo_interface import *
 from src.simulation.sim_world import *
-#from terminal_reader import WaitForChar
+from matplotlib import pyplot as plt
+#from terminal_reader import
+
+import asyncio
 import math
 import numpy as np
 import threading
@@ -17,12 +16,13 @@ m = loadTrack("Oval.csv")
 currentPose = transformationMat(0,0,0)
 TargetPose = transformationMat(0,0,0)
 
+#Plots the OBR car in matplot
 def plotRobot(pos: np.array, colour="orange", existingPlot=None):
     scale = 0.005
     xy = np.array([[150, 150, 90, 60, 10, -40, -70, -90, -130, -130, -90, -70, -40,  10,  60,  90, 150],
                    [-20, 20,  40, 40, 25,  25,  40,  40,   20,  -20, -40, -40, -25, -25, -40, -40, -20]])
-
     ones = np.ones((1,17))
+
     xy = xy*scale
     xy = np.vstack((xy, ones))
     xy = np.matmul(pos, xy)
@@ -35,6 +35,7 @@ def plotRobot(pos: np.array, colour="orange", existingPlot=None):
         line = plt.plot(xy[0, :], xy[1, :], colour)
         return line[0]
 
+#Plots all the cones in matplot
 def plotLandmark(cone: Cone, color="orange", existingPlot=None):
     xy = np.array([[25, -25, -25, 25, 25],
                    [25, 25, -25, -25, 25],
@@ -53,7 +54,7 @@ def plotLandmark(cone: Cone, color="orange", existingPlot=None):
         line = plt.plot(xy[0, :], xy[1, :], cone.colour)
         return line[0]
 
-
+#Keeps updating the same matplot until the program ends
 def runPlotLoop(simWorld: SimWorld, finished):
     global particles
 
@@ -89,10 +90,14 @@ def runPlotLoop(simWorld: SimWorld, finished):
         time.sleep(0.01)
 
 
-def runMainLoop(simWorld: SimWorld, finished):
+#Sets the car to keep driving a specified path. When SLAM is done you can modify this ;)
+def runDriveLoop(simWorld: SimWorld, finished):
     global currentPose
     global currentTarget
 
+    #The points that the car will follow. If you load in your own track be sure to change these to match it. Also be
+    #mindful of rotation (in radians). **ALSO** as using a spline technique for driving, weird things may happen in
+    #some situations so if occurs just move the points very slightly (singularities occur annoyingly often)
     pathNodes = {
         "A": transformationMat(8, 14, math.pi/2),
         "B": transformationMat(5, 16, math.pi),
@@ -119,11 +124,10 @@ def runMainLoop(simWorld: SimWorld, finished):
                 #print("Changing target")
                 break
 
-        print("GPS:", simWorld.sensor_gps())
-        print("Speed:", simWorld.sensor_left_speed(), ",", simWorld.sensor_right_speed())
-        print("Cones:", simWorld.sensor_camera())
-        #print("POS:", currentPose[:,2].round())
-        #print("Target d:", X - pathNodes[key][0, 2], " ", Y - pathNodes[key][1, 2])
+        #print("GPS:", simWorld.sensor_gps())
+        #print("Speed:", simWorld.sensor_left_speed(), ",", simWorld.sensor_right_speed())
+        #print("Cones:", simWorld.sensor_camera())
+
         # Set route
         relativeTarget = np.matmul(np.linalg.inv(currentPose), currentTarget)
         velocity = target_pose_to_velocity_spline(relativeTarget)
@@ -138,39 +142,22 @@ def runMainLoop(simWorld: SimWorld, finished):
     simWorld.drive_wheel_motors(0, 0)
     print("finished")
 
-
-# def runMainLoop(simWorld: SimWorld, finished):
-#     global currentPose
-#     global currentTarget
-#
-#     while (True):
-#
-#         simWorld.drive_wheel_motors(1, 1)
-#         time.sleep(5)
-#         simWorld.drive_wheel_motors(1, 5)
-#         time.sleep(1)
-#         simWorld.drive_wheel_motors(1, 1)
-#         time.sleep(2)
-#         simWorld.drive_wheel_motors(1, 5)
-#         time.sleep(1)
-
-
+#Create the threads to run everything
 def cozmo_program(simWorld: SimWorld):
     finished = threading.Event()
     print("Starting simulation. Press Q to exit", end="\r\n")
     threading.Thread(target=runWorld, args=(simWorld, finished)).start()
-    #threading.Thread(target=WaitForChar, args=(finished, '[Qq]')).start()
-    threading.Thread(target=runMainLoop, args=(simWorld, finished)).start()
+    #threading.Thread(target=WaitForChar, args=(finished, '[Qq]')).start() #TODO ...perhaps
+    threading.Thread(target=runDriveLoop, args=(simWorld, finished)).start()
     # running the plot loop in a thread is not thread-safe because matplotlib
     # uses tkinter, which in turn has a threading quirk that makes it
     # non-thread-safe outside the python main program.
     # See https://stackoverflow.com/questions/14694408/runtimeerror-main-thread-is-not-in-main-loop
 
-    # threading.Thread(target=runPlotLoop, args=(simWorld,finished)).start()
+    #threading.Thread(target=runPlotLoop, args=(simWorld,finished)).start()
     runPlotLoop(simWorld, finished)
 
-
-# NOTE: this code allows to specify the initial position of Cozmo on the map
+#Opening to simulation, here you can specify a start X and Y
 startX = 8.0
 startY = 5.0
 startA = math.pi/2
@@ -178,5 +165,4 @@ startPos = transformationMat(startX, startY, startA)
 currentPose = startPos
 
 simWorld = SimWorld(m, startPos)
-
 cozmo_program(simWorld)

@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 
-# Copyright (c) 2019 Matthias Rolf, Oxford Brookes University
-
 '''
 
 '''
-import numpy as np
-
 from matplotlib import pyplot as plt
+
 import matplotlib.patches as patches
+import numpy as np
 import csv
 import math
 
@@ -36,6 +34,8 @@ class Cone:
         self.size = None
         self.visible = False
 
+#This function loads a "blergh.csv" file in. If you want to make your own then look at the format on Oval.csv and just
+#change the filename from runSimTrack.py (line 15 or nearby)
 def loadTrack(trackName):
     scale = 1
 
@@ -73,7 +73,7 @@ def loadTrack(trackName):
     T.maxY = maxY + border
     return T
 
-
+#Can be used as a standalone program if you don't want a sim but want to see the track
 def plotTrack(ax, t: Track, gridOn, color="blue"):
     if(gridOn == True):
         minX = t.minX

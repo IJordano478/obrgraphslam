@@ -1,5 +1,6 @@
 from src.simulation.Track import Track, Cone
 from src.simulation.variables import *
+
 import random
 import time
 import math
@@ -20,6 +21,7 @@ class SimWorld:
     def sim_get_pos(self):
         return self._pos
 
+#Simulates a single step in the simulation; so updates all the information to the new values
     def sim_step(self):
         x = self._pos[0,2]
         y = self._pos[1,2]
@@ -27,7 +29,7 @@ class SimWorld:
         s1 = self._s1 * self.waitTime
         s2 = self._s2 * self.waitTime
         #a = (s2-s1) / (np.exp(4.44265125649))
-        a = (s2 - s1) / 0.0001
+        a = (s2 - s1) / conf_wheelDistance
         if abs(a) > 0.0001:
             rad = (s2+s1) / (2 * a)
             x = rad * math.sin(a)
@@ -51,6 +53,7 @@ class SimWorld:
         self._s1 = 0.9 * self._s1 + 0.1 * self._s1Command
         self._s2 = 0.9 * self._s2 + 0.1 * self._s2Command
 
+#Checks each cone based on the angle and distance between them to determine visibility
     def _compute_cone_is_visible(self, cone: Cone):
 
         relativePose = np.matmul(np.linalg.inv(self._pos), cone.pos)
@@ -58,8 +61,7 @@ class SimWorld:
         angle = math.atan2(relativePose[1,2], relativePose[0,2])
 
         # camera field of view (degrees)
-        FOV = 90.0
-        midAngle = FOV / 180.0 * math.pi
+        midAngle = conf_cameraAngle / 180.0 * math.pi
         relativeAngle = abs(angle) / midAngle
 
         relativeTolerance = 0.1
@@ -71,10 +73,10 @@ class SimWorld:
             angleVisibilityProb = 0.99
 
         distance = math.sqrt(relativePose[1,2] * relativePose[1,2] + relativePose[0,2] * relativePose[0,2])
-        minDistance = 100
-        minTolerance = 50
-        maxDistance = 600
-        maxTolerance = 100
+        minDistance = conf_cameraMinD
+        minTolerance = conf_cameraMinTol
+        maxDistance = conf_cameraMaxD
+        maxTolerance = conf_cameraMaxTol
         if distance < minDistance - minTolerance:
             distanceProb = 0.0
         elif distance < minDistance + minTolerance:
@@ -85,8 +87,7 @@ class SimWorld:
             distanceProb = 0.99 - 0.99 * (distance - (maxDistance - maxTolerance)) / (2 * maxTolerance)
         else:
             distanceProb = 0.0
-
-        p = angleVisibilityProb #* distanceProb
+        p = angleVisibilityProb * distanceProb
         if random.random() < p:
             return True
         return False
@@ -129,7 +130,11 @@ class SimWorld:
              return 0
         return float(self._s2)
 
-#===================SENSORS=========================================
+#===================SENSORS=============================================
+#For anyone working on SLAM use these to simulate listening to a ROStopic
+#Note: sensors include some simulated noise (based on random factor), you can turn it off or work with it.
+#Having noise is preferable however it can be more experimental to turn it off if you are specifically testing
+#an area
 
     def sensor_left_speed(self):
         if random.random() < 0.05:
@@ -147,7 +152,7 @@ class SimWorld:
         return [self._pos[0,2], self._pos[1,2]]
 
     def sensor_imu(self):
-        #TODO
+        #TODO I'll sort this out when I know what our IMU will do
         return 0
 
     def sensor_camera(self):

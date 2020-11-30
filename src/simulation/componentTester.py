@@ -1,8 +1,11 @@
 from src.simulation.Track import loadTrack, plotTrack
 from src.simulation.variables import *
+
 import matplotlib.pyplot as plt
 import numpy as np
 
+#=====Testing_Stage=====
+#More than welcome to use this file to test functions and bits separately
 blergh = np.array([[1],[2],[3]])
 
 xy = np.array([[20, -20, -40, -40, -25, -25, -40, -40, -20,    20,  40,  40,  25, 25, 40, 40, 20],
