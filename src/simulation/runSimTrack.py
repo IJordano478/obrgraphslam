@@ -2,6 +2,7 @@ from src.simulation.Track import Track, plotTrack, loadTrack
 from src.simulation.variables import *
 from src.simulation.driving_commands import *
 from src.simulation.sim_world import *
+from src.simulation.componentTester import *
 from matplotlib import pyplot as plt
 #from terminal_reader import
 
@@ -110,8 +111,11 @@ def runDriveLoop(simWorld: SimWorld, finished):
     currentTarget = pathNodes["A"]
     time.sleep(5)
 
-    # main loop
+    graphSLAM = Graph()
+    graphSLAM.addNode(currentPose)
+    graphSLAM.recentNode = graphSLAM.getAllNodes()[0]
 
+    # main loop
     while (True):
         currentPose = simWorld.sim_get_pos()
         X = currentPose[0, 2]
@@ -127,6 +131,15 @@ def runDriveLoop(simWorld: SimWorld, finished):
         #print("GPS:", simWorld.sensor_gps())
         #print("Speed:", simWorld.sensor_left_speed(), ",", simWorld.sensor_right_speed())
         #print("Cones:", simWorld.sensor_camera())
+
+        relativePrevNode = np.matmul(np.linalg.inv(graphSLAM.recentNode.getPose()), currentPose)
+        relativeX = relativePrevNode[0,2]
+        relativeY = relativePrevNode[1,2]
+        relativeA = get2DMatAngle(relativePrevNode)
+        if (relativeX>0.5) or (relativeY>0.5) or (relativeA>0.5):
+            graphSLAM.addNode(currentPose, graphSLAM.recentNode.getPose())
+            graphSLAM.recentNode = graphSLAM.recentNode = graphSLAM.getAllNodes()[-1]
+        print(len(graphSLAM.getAllNodes()))
 
         # Set route
         relativeTarget = np.matmul(np.linalg.inv(currentPose), currentTarget)
