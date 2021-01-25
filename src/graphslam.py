@@ -7,6 +7,7 @@ from src.omega import *
 
 import numpy as np
 import math
+import copy
 
 '''
 our initial estimate will simply be provided by chaining together the motion model p(xt | ut, xt−1). Such an algorithm 
@@ -25,8 +26,8 @@ noiseCovarQ = np.diag(measureNoiseCovar)
 
 landmarks = np.empty((0, 3))
 
-omega = None
-xi = None
+#omega = None
+#xi = None
 
 def gs_initialise(controls: np.array):
     # Set base start pose and time step. Time step should be updated in integration version to actual time delta
@@ -56,7 +57,7 @@ def gs_initialise(controls: np.array):
 # 1: LINEARIZE(control, observations, correspondence, means)
 def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondence=None):
     # 2: Set omega and xi to 0
-    global omega, xi
+    #global omega, xi
     omega = Omega()
     xi = Xi()
 
@@ -85,14 +86,14 @@ def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondenc
         gt2 = np.hstack((-jacobianG, np.eye(3)))
         omegaUpdate = np.matmul(np.matmul(gt1, np.linalg.inv(noiseCovarR)), gt2)
         omega.addPose(omegaUpdate, i+1)
-        print("Omega:\n",omegaUpdate)
+        #print("Omega:\n",omegaUpdate)
 
         # 8: add same with a bit more to xi
         #gt3 = np.hstack((xhat-jacobianG * poseMeans[0:3,0:3,i]))
         gt3 = xhat - np.matmul(jacobianG, poseMeans[i])
         xiUpdate = np.matmul(np.matmul(gt1, np.linalg.inv(noiseCovarR)), gt3)
         xi.addPose(xiUpdate, i+1)
-        print("Xi:\n", xiUpdate)
+        #print("Xi:\n", xiUpdate)
 
     # 9: endfor
 
@@ -131,7 +132,7 @@ def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondenc
             if ((landmarks[n,0]-j[0])*(landmarks[n,0]-j[0]) + (landmarks[n,1]-j[1])*(landmarks[n,1]-j[1]) < (0.5)):
                 j = landmarks[n,:]
                 match = True
-                index = n
+                index = n+1
                 print("matched measurement to prexisting landmark")
                 break
 
@@ -142,6 +143,7 @@ def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondenc
                 landmarks = np.expand_dims((j), axis=0)
             else:
                 landmarks = np.concatenate((landmarks, np.expand_dims((j), axis=0)), axis=0)
+        print("Landmark Index:", index)
         # TODO
 
         # 14: delta = [[deltax],[deltay]]
@@ -180,26 +182,70 @@ def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondenc
 # 1: REDUCE(omega, xi)
 def gs_reduce(omega, xi):
     # 2: new omega = omega
-    reducedOmega = omega
+    reducedOmega = copy.copy(omega)
 
     # 3: new xi = xi
-    reducedXi = xi
+    reducedXi = copy.copy(xi)
 
+    print(xi.xiVector.round(4))
     # 4: for each feature j do
+    for i in range(0, omega.nLmarks):
+
+        # 5: let T(j) be the set of all poses xt that j was observed at
+        # Ignored, attempting use of matrix to get all updates in one calculation
+        # Note: update structure checks mathmatically, however actual update info may not be correct. Check with hand calculated
+
+        # 6: Do some mathsy stuff to xi
+        lmarkVisibility = omega.omegaMatrix[0:omega.nPoses+1,omega.nPoses+1+i,:,:] #The column of visibility from poses to the lmark
+        mapDiagonal = np.expand_dims(omega.omegaMatrix[omega.nPoses+1+i,omega.nPoses+1+i], axis=0)
+        updatePart1 = np.concatenate((lmarkVisibility,mapDiagonal), axis=0) #Adding the map element onto the bottom of the column
+
+        mapDiagonalInv = np.linalg.pinv(mapDiagonal)
+
+        updatePart1 = np.matmul(updatePart1, mapDiagonalInv)    #The lmark visibility column * inverse map diagonal element
+
+        xiUpdatePart2 = np.identity(3)
+        xiUpdatePart2[0:2,2] = np.array([xi.xiVector[omega.nPoses+1+i,0:2]])    #create a 3x3 from the map information given in xi
+        xiUpdate = np.matmul(updatePart1,xiUpdatePart2)         #complete the xi update equation
+
+        #convert 3x3 mat to 1x3 vector for xi
+        xiUpdateVector = np.zeros((xiUpdate.shape[0]-1,3))
+        for n in range(0, omega.nPoses+1):
+            xiUpdateVector[n,:] = np.array([xiUpdate[n,0,2],xiUpdate[n,1,2], angle2num(xiUpdate[n,:,:])])
+
+        #update poses and the map value
+        reducedXi.xiVector[0:omega.nPoses+1,:] -= xiUpdateVector
+        reducedXi.xiVector[omega.nPoses+1+i,:] -= np.array([xiUpdate[-1,0,2],xiUpdate[-1,1,2], angle2num(xiUpdate[-1,:,:])])
 
 
-    # 5: let T(j) be the set of all poses xt that j was observed at
+        # 7: Do some mathsy stuff to omega
+        updatePart1 = np.expand_dims((updatePart1),axis=1) #correct dimensionality to 4d column
+        omegaUpdatePart2 = omega.omegaMatrix[omega.nPoses+1+i, 0:omega.nPoses+1,:,:]   #get the row of visibility from poses to lmark
+        omegaUpdatePart2 = np.expand_dims((omegaUpdatePart2),axis=0) #correct dimensionality to 4d row
+        omegaUpdatePart2 = np.concatenate((omegaUpdatePart2, np.expand_dims((mapDiagonal),axis=0)), axis=1)      #add onto the end the map diagonal
+        omegaUpdate = np.matmul(updatePart1, omegaUpdatePart2)                          #complete the omega update equation
+        #print("omegaUpdate\n",omegaUpdate)
 
-    # 6: Do some mathsy stuff to xi
-
-    # 7: Do some mathsy stuff to omega
+        #Apply update to omega at square of poses, column observation, row observation and map diagonal
+        reducedOmega.omegaMatrix[0:omega.nPoses+1,0:omega.nPoses+1,:,:] -= omegaUpdate[0:-1,0:-1,:,:]
+        reducedOmega.omegaMatrix[0:omega.nPoses+1,omega.nPoses+1+i,:,:] -= omegaUpdate[0:-1,-1,:,:]
+        reducedOmega.omegaMatrix[omega.nPoses+1+i,0:omega.nPoses+1,:,:] -= omegaUpdate[-1,0:-1,:,:]
+        reducedOmega.omegaMatrix[omega.nPoses+1+i,omega.nPoses+1+i,:,:] -= omegaUpdate[-1,-1,:,:]
 
     # 8: Remove from omega and xi all rows and columns corresponding to j
+    # Performed as block after to prevent index changing during iterations
+    reducedXi.xiVector = reducedXi.xiVector[0:omega.nPoses+1,:]
+    reducedXi.nPoses = reducedXi.xiVector.shape[0]-1
+    reducedXi.nLmarks = 0
+
+    reducedOmega.omegaMatrix = reducedOmega.omegaMatrix[0:omega.nPoses+1,0:omega.nPoses+1,:,:]
+    reducedOmega.nPoses = reducedXi.xiVector.shape[0] - 1
+    reducedOmega.nLmarks = 0
 
     # 9: endfor
 
     # 10: return new omega, new xi
-    return
+    return reducedOmega, reducedXi
 
 
 # 1: SOLVE(newOmega,newXi,Omega,Xi)
@@ -266,5 +312,8 @@ if __name__ == "__main__":
     print("Recorded poses:")
     for i in range(0, meanPoses.shape[0]):
         print(np.round(meanPoses[i,:], 3))
-    gs_linearize(controls,measurements, meanPoses)
+    omega, xi = gs_linearize(controls,measurements, meanPoses)
     omega.showOmega()
+    print("\n")
+    #print(xi.xiVector)
+    gs_reduce(omega,xi)

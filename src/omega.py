@@ -63,7 +63,7 @@ class Omega:
             self.omegaMatrix[time, time-1, :, :] += newPose[3:6, 0:3]
             self.omegaMatrix[time, time, :, :] += newPose[3:6, 3:6]
 
-            print("Omega Matrix shape:", self.omegaMatrix.shape)
+            #print("Omega Matrix shape:", self.omegaMatrix.shape)
 
         self.nPoses += 1
         return
@@ -80,7 +80,7 @@ class Omega:
             self.omegaMatrix[time, -1, :, :] += newLandmark[0:3, 3:6]
             self.omegaMatrix[-1, time, :, :] += newLandmark[3:6, 0:3]
             self.omegaMatrix[-1, -1, :, :] += newLandmark[3:6, 3:6]
-            print("Omega Matrix shape:", self.omegaMatrix.shape)
+            #print("Omega Matrix shape:", self.omegaMatrix.shape)
 
             self.nLmarks += 1
         else:
@@ -134,17 +134,13 @@ class Xi:
             self.xiVector[self.nPoses + lmarkIndex,:] += update[3:6]
             self.nLmarks += 1
 
-            print("xi shape", self.xiVector.shape)
-            print(self.xiVector)
+            #print("xi shape", self.xiVector.shape)
+            #print(self.xiVector)
         else:
             # Corresponds to prexisting landmark
             self.xiVector[time, :] += update[0:3]
             self.xiVector[self.nPoses+lmarkIndex, :] += update[3:6]
-            print("xi shape", self.xiVector.shape)
-            print(self.xiVector)
-
-
-
-
+            #print("xi shape", self.xiVector.shape)
+            #print(self.xiVector)
 
         return
