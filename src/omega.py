@@ -13,7 +13,8 @@ class Omega:
         self.poses = np.concatenate((self.poses, np.expand_dims(np.identity(3), axis=2)), axis=2)
 
         a = np.zeros((3, 3))
-        np.fill_diagonal(a,np.inf)
+        #np.fill_diagonal(a,np.inf)
+        np.fill_diagonal(a, 1000000)
         self.omegaMatrix[0,0] = a
 
     def addPose(self, newPose, time):
@@ -97,7 +98,7 @@ class Omega:
         self.omegaMatrix[pos[1]][pos[2]][:][:] = omegaUpdate
         return
 
-    def showOmega(self):
+    def showOmegaOccupancy(self):
         mat = np.zeros((self.nPoses + self.nLmarks + 1, self.nPoses + self.nLmarks + 1), dtype=int)
         for x in range(0, self.nPoses + self.nLmarks+1):
             for y in range(0, self.nPoses + self.nLmarks+1):
@@ -107,6 +108,12 @@ class Omega:
                     mat[x,y] = 1
 
         print(mat)
+        return
+
+    def showOmegaDetailed(self):
+        for x in range(0, self.nPoses + self.nLmarks+1):
+            for y in range(0, self.nPoses + self.nLmarks+1):
+                print("Omega index: (", y, ",", x, ")\n", self.omegaMatrix[y, x,:,:].round(3))
         return
 
 

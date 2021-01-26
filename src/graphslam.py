@@ -62,7 +62,7 @@ def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondenc
     xi = Xi()
 
     # 3: add 3x3 matrix with infinity on diagonals to omega at x0
-    # Done in initialisation of Omega
+    # Done in initialisation of Omega as large value, np.inf causes issues with matrix inversion
 
     # 4: for all controls do
     for i in range(0,len(controls)):
@@ -187,7 +187,7 @@ def gs_reduce(omega, xi):
     # 3: new xi = xi
     reducedXi = copy.copy(xi)
 
-    print(xi.xiVector.round(4))
+    #print(xi.xiVector.round(4))
     # 4: for each feature j do
     for i in range(0, omega.nLmarks):
 
@@ -249,21 +249,50 @@ def gs_reduce(omega, xi):
 
 
 # 1: SOLVE(newOmega,newXi,Omega,Xi)
-def gs_solve():
+def gs_solve(reducedOmega, reducedXi, Omega, Xi):
     # 2: SumSigma = newOmega inverse
+    pathCovariance = np.linalg.pinv(reducedOmega.omegaMatrix)
 
     # 3: means = sumSigma * newXi
+    # this step can be simplified if the xiVector is 4d from the beginning
+    reducedXi2d = np.zeros(((omega.nPoses+1)*3,3))
+    for i in range(0,omega.nPoses+1):
+        mat = np.array([[math.cos(reducedXi.xiVector[i,2]), -math.sin(reducedXi.xiVector[i,2]), reducedXi.xiVector[i,0]],
+                        [math.sin(reducedXi.xiVector[i,2]), math.cos(reducedXi.xiVector[i,2]), reducedXi.xiVector[i,1]],
+                        [0., 0., 1.]])
+        reducedXi2d[3*i:3*i+3,:] = mat
+
+    pathCovariance2d = np.zeros(((omega.nPoses+1)*3,(omega.nPoses+1)*3))
+    for r in range(0,omega.nPoses+1):
+        for c in range(0, omega.nPoses+1):
+            pathCovariance2d[3*r:3*r+3,3*c:3*c+3] = pathCovariance[r,c,:,:]
+
+
+    means = np.matmul(pathCovariance2d, reducedXi2d)
 
     # 4: for each feature j do
+    for i in range(0, omega.nLmarks):
+        # 5: set T(j) to the set of all poses xt that j was observed at
 
-    # 5: set T(j) to the set of all poses xt that j was observed at
+        lmarkInv = np.linalg.pinv(omega.omegaMatrix[omega.nPoses+1+i,omega.nPoses+1+i,:,:])
+        lmarkXi = np.array([[1, 0, xi.xiVector[omega.nPoses+1+i,0]],
+                            [0, 1, xi.xiVector[omega.nPoses+1+i,1]],
+                            [0., 0., 1.]])
+        lmarkPoseVis4D = omega.omegaMatrix[omega.nPoses+1+i,0:omega.nPoses+1,:,:]
 
-    # 6: meanJ = mathsy stuff that i won't write now
+        lmarkPoseVis = np.zeros((3,(omega.nPoses+1)*3))
+        for c in range(0, omega.nPoses + 1):
+            lmarkPoseVis[:,3*c:3*c+3] = lmarkPoseVis4D[c,:,:]
+
+        # 6: meanJ = mathsy stuff that i won't write now
+        lmarkMean = lmarkXi + np.matmul(lmarkPoseVis, means[0:(omega.nPoses+1)*3,:])
+        lmarkMean = np.matmul(lmarkInv, lmarkMean)
+        means = np.concatenate((means,lmarkMean), axis=0)
 
     # 7: endfor
 
     # 8: return mean, sumSigma
-    return
+    return means, pathCovariance2d
 
 
 # 1: TEST(omega, xi, mean, landmark1, landmark2)
@@ -313,7 +342,8 @@ if __name__ == "__main__":
     for i in range(0, meanPoses.shape[0]):
         print(np.round(meanPoses[i,:], 3))
     omega, xi = gs_linearize(controls,measurements, meanPoses)
-    omega.showOmega()
+    omega.showOmegaOccupancy()
     print("\n")
     #print(xi.xiVector)
-    gs_reduce(omega,xi)
+    reducedOmega, reducedXi = gs_reduce(omega,xi)
+    means, pathCovariance = gs_solve(reducedOmega, reducedXi, omega, xi)
