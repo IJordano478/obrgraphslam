@@ -4,6 +4,8 @@ GraphSLAM based on Thrun et al
 """
 from src.frame2d import *
 from src.omega import *
+from scipy.linalg import fractional_matrix_power
+from scipy.stats import multivariate_normal
 
 import numpy as np
 import math
@@ -19,7 +21,7 @@ its estimation.
 '''
 timeStep = 1
 motionNoiseCovar = [1., 1., 1.]
-measureNoiseCovar = [1., 1., 1.]
+measureNoiseCovar = [1., 1., 0.]
 
 noiseCovarR = np.diag(motionNoiseCovar)
 noiseCovarQ = np.diag(measureNoiseCovar)
@@ -80,18 +82,18 @@ def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondenc
             jacobianG[1,2] = (-(v / w) * math.cos(poseMeans[i,2])) + ((v / w) * math.cos(poseMeans[i,2] + w * timeStep))
         else:
             jacobianG[1, 2] = v*timeStep
-
+        print("jacobianG:\n",jacobianG)
         # 7: Add G and R to omega
         gt1 = np.vstack((np.transpose(-jacobianG), np.eye(3)))
         gt2 = np.hstack((-jacobianG, np.eye(3)))
-        omegaUpdate = np.matmul(np.matmul(gt1, np.linalg.inv(noiseCovarR)), gt2)
+        omegaUpdate = np.matmul(np.matmul(gt1, np.linalg.pinv(noiseCovarR)), gt2)
         omega.addPose(omegaUpdate, i+1)
         #print("Omega:\n",omegaUpdate)
 
         # 8: add same with a bit more to xi
         #gt3 = np.hstack((xhat-jacobianG * poseMeans[0:3,0:3,i]))
         gt3 = xhat - np.matmul(jacobianG, poseMeans[i])
-        xiUpdate = np.matmul(np.matmul(gt1, np.linalg.inv(noiseCovarR)), gt3)
+        xiUpdate = np.matmul(np.matmul(gt1, np.linalg.pinv(noiseCovarR)), gt3)
         xi.addPose(xiUpdate, i+1)
         #print("Xi:\n", xiUpdate)
 
@@ -126,6 +128,7 @@ def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondenc
         j[2] = 0
 
         # TODO this part to next todo is poor, landmarks should be recorded during data collection
+        '''
         match = False
         global landmarks
         for n in range(0,landmarks.shape[0]):
@@ -144,6 +147,14 @@ def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondenc
             else:
                 landmarks = np.concatenate((landmarks, np.expand_dims((j), axis=0)), axis=0)
         print("Landmark Index:", index)
+        '''
+        global landmarks
+        index = landmarks.shape[0] + 1
+        if (landmarks.shape[0] == 0):
+            landmarks = np.expand_dims((j), axis=0)
+        else:
+            landmarks = np.concatenate((landmarks, np.expand_dims((j), axis=0)), axis=0)
+
         # TODO
 
         # 14: delta = [[deltax],[deltay]]
@@ -161,14 +172,14 @@ def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondenc
                                     [0, 0, 0, 0, 0, q]])
 
         # 18: add H.i.t. and Qt^-1 to omega at xt and mj
-        np.linalg.inv(noiseCovarQ)
-        omegaUpdate = np.matmul(np.transpose(jacobianH), np.linalg.inv(noiseCovarQ))
+        np.linalg.pinv(noiseCovarQ)
+        omegaUpdate = np.matmul(np.transpose(jacobianH), np.linalg.pinv(noiseCovarQ))
         omegaUpdate = np.matmul(omegaUpdate, jacobianH)
         omega.addLandmark(omegaUpdate, time, index)
 
         # 19: add lots of stuff to xi
         ht2 = measurement[1:]-zhat + np.matmul(jacobianH, np.array([pose[0], pose[1], pose[2], j[0], j[1], 0]))
-        xiUpdate = np.matmul(np.transpose(jacobianH), np.linalg.inv(noiseCovarQ))
+        xiUpdate = np.matmul(np.transpose(jacobianH), np.linalg.pinv(noiseCovarQ))
         xiUpdate = np.matmul(xiUpdate, ht2)
         xi.addLandmark(xiUpdate, time, index)
         # 20: endfor
@@ -181,11 +192,14 @@ def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondenc
 
 # 1: REDUCE(omega, xi)
 def gs_reduce(omega, xi):
+
     # 2: new omega = omega
-    reducedOmega = copy.copy(omega)
+    #reducedOmega = copy.copy(omega)
+    reducedOmega = copy.deepcopy(omega)
 
     # 3: new xi = xi
-    reducedXi = copy.copy(xi)
+    #reducedXi = copy.copy(xi)
+    reducedXi = copy.deepcopy(xi)
 
     #print(xi.xiVector.round(4))
     # 4: for each feature j do
@@ -249,7 +263,7 @@ def gs_reduce(omega, xi):
 
 
 # 1: SOLVE(newOmega,newXi,Omega,Xi)
-def gs_solve(reducedOmega, reducedXi, Omega, Xi):
+def gs_solve(reducedOmega, reducedXi, omega, xi):
     # 2: SumSigma = newOmega inverse
     pathCovariance = np.linalg.pinv(reducedOmega.omegaMatrix)
 
@@ -296,12 +310,69 @@ def gs_solve(reducedOmega, reducedXi, Omega, Xi):
 
 
 # 1: TEST(omega, xi, mean, landmark1, landmark2)
-def gs_known_correspondence_test(omega, xi, poseMean, pathCovariance, lmarkJ, lmarkK):
-    # 2-7: A butt tonne of maths
+def gs_known_correspondence_test(omega, xi, poseMean, pathCovariance, indexJ, indexK):
+    omega.showOmegaDetailed()
+    print("\n\n\n")
 
+    # 2
+    omegajk = np.zeros((6,6))
+    omegajk[0:3, 0:3] = omega.omegaMatrix[omega.nPoses + 1 + indexJ, omega.nPoses + 1 + indexJ]
+    omegajk[0:3, 3:6] = omega.omegaMatrix[omega.nPoses + 1 + indexJ, omega.nPoses + 1 + indexK]
+    omegajk[3:6, 0:3] = omega.omegaMatrix[omega.nPoses + 1 + indexK, omega.nPoses + 1 + indexJ]
+    omegajk[3:6, 3:6] = omega.omegaMatrix[omega.nPoses + 1 + indexK, omega.nPoses + 1 + indexK]
+    print("omegajk:\n",omegajk.round(3))
 
+    lmarkPoseVisRow = np.zeros((6,3*(omega.nPoses+1)))
+    lmarkPoseVisCol = np.zeros((3*(omega.nPoses+1),6))
+    for i in range(0,omega.nPoses+1):
+        lmarkPoseVisRow[0:3, i * 3:i * 3 + 3] = omega.omegaMatrix[omega.nPoses + 1 + indexJ, i]
+        lmarkPoseVisRow[3:6, i * 3:i * 3 + 3] = omega.omegaMatrix[omega.nPoses + 1 + indexK, i]
+        lmarkPoseVisCol[i * 3:i * 3 + 3, 0:3] = omega.omegaMatrix[i, omega.nPoses + 1 + indexJ]
+        lmarkPoseVisCol[i * 3:i * 3 + 3, 3:6] = omega.omegaMatrix[i, omega.nPoses + 1 + indexK]
+    print("lmarkPoseVisRow:\n", lmarkPoseVisRow.round(3))
+    print("lmarkPoseVisCol:\n", lmarkPoseVisCol.round(3))
+    print("PathCovariance:\n",pathCovariance.round(1))
+    jkOmegaRelation =  omegajk - np.matmul(np.matmul(lmarkPoseVisRow, pathCovariance), lmarkPoseVisCol)
+    print("jkOmegaRelation:\n", jkOmegaRelation.round(3))
 
-    return
+    # 3
+    jkMeans = np.zeros((6,3))
+    print(poseMean,"\n")
+    jkMeans[0:3, :] = poseMean[(omega.nPoses + 1)*3 + (indexJ*3):(omega.nPoses + 1)*3 + (indexJ*3) + 3, :]
+    print(jkMeans,"\n")
+    jkMeans[3:6, :] = poseMean[(omega.nPoses + 1)*3 + (indexK*3):(omega.nPoses + 1)*3 + (indexK*3) + 3, :]
+    print(jkMeans,"\n")
+
+    print("jkMeans:\n", jkMeans.round(3))
+    jkXiRelation = np.matmul(jkOmegaRelation, jkMeans)
+    print("jkXiRelation:\n", jkXiRelation.round(3))
+
+    # 4
+    identityModifier = np.concatenate((np.identity(3),-1*np.identity(3)),axis=0)
+    print("identityMod:\n",identityModifier)
+    omegajkDiff = np.matmul(np.matmul(identityModifier.transpose(), jkOmegaRelation), identityModifier)
+    print("omegajkDiff:\n", omegajkDiff.round(3))
+
+    # 5
+    xijkDiff = np.matmul(identityModifier.transpose(), jkXiRelation)
+    print("xijkDiff:\n", xijkDiff.round(3))
+
+    # 6
+    meanjkDiff = np.matmul(np.linalg.pinv(omegajkDiff),xijkDiff)
+    print("meanjkDiff:\n", meanjkDiff.round(3))
+
+    # 7
+    print(np.linalg.pinv(omegajkDiff[0:2,0:2]))
+    gaussian = multivariate_normal(meanjkDiff[0:2,2], np.linalg.pinv(omegajkDiff[0:2,0:2]), True)
+    print(gaussian.pdf(0))
+    #distributionFirst = fractional_matrix_power(np.absolute(2*math.pi*np.linalg.pinv(omegajkDiff)),-0.5)
+    #distributionSecond = -0.5*np.matmul(np.matmul(meanjkDiff.transpose(),np.linalg.pinv(omegajkDiff)),meanjkDiff)
+    #print("Final1:\n",distributionFirst)
+    #print("Final2:\n", distributionSecond)
+    #distributionExp = math.exp(-0.5*np.matmul(np.matmul(meanjkDiff.transpose(),np.linalg.pinv(omegajkDiff)),meanjkDiff))
+    #return distributionFirst*distributionExp
+
+    return gaussian
 
 
 def GraphSLAM():
@@ -322,10 +393,18 @@ if __name__ == "__main__":
     pose1 = np.array([[1, 0, 1], [0, 1, 0], [0, 0, 1]])
     pose2 = np.array([[1, 0, 2], [0, 1, 0], [0, 0, 1]])
     pose3 = np.array([[0, -1, 3], [1, 0, 1], [0, 0, 1]])
-    measurements = np.array([[1, math.sqrt(2), math.pi/4, 0],
+    #measurements = np.array([[1, math.sqrt(2), math.pi/4, 0],
+    #                         [1, math.sqrt(5), -0.463647, 0],
+    #                         [2, math.sqrt(2), -math.pi/4, 0],
+    #                         [3, 1, 0, 0]])
+
+    measurements = np.array([[1, math.sqrt(2), math.pi / 8, 0],
+                             [1, math.sqrt(2), -math.pi / 8, 0],
                              [1, math.sqrt(5), -0.463647, 0],
-                             [2, math.sqrt(2), -math.pi/4, 0],
+                             [2, math.sqrt(2), -math.pi / 4, 0],
                              [3, 1, 0, 0]])
+
+    #measurements = np.array([])
     controls = np.array([[1, 0], [1, 0], [math.pi / 2, math.pi / 2]])
 
     #omega.addPose(pose1)
@@ -342,8 +421,14 @@ if __name__ == "__main__":
     for i in range(0, meanPoses.shape[0]):
         print(np.round(meanPoses[i,:], 3))
     omega, xi = gs_linearize(controls,measurements, meanPoses)
+
     omega.showOmegaOccupancy()
-    print("\n")
-    #print(xi.xiVector)
+    breakpoint()
+
     reducedOmega, reducedXi = gs_reduce(omega,xi)
+    reducedOmega.showOmegaOccupancy()
     means, pathCovariance = gs_solve(reducedOmega, reducedXi, omega, xi)
+    print(pathCovariance.shape)
+    print(means[:,:].round(3))
+
+    gs_known_correspondence_test(omega,xi,means,pathCovariance,0,1)
