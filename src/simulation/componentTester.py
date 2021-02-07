@@ -91,10 +91,24 @@ class Graph():
 
 
 
-print(gs_initialise([[1,0],[0,math.pi/2],[1,0]]))
-gs_linearize([1,2,3,4],[12,65,900],"c","mean")
+#print(gs_initialise([[1,0],[0,math.pi/2],[1,0]]))
+#gs_linearize([1,2,3,4],[12,65,900],"c","mean")
 
 
+A = np.array([[1,2,3],
+          [4,5,6],
+          [7,8,9]])
+
+B = np.array([[1,2,3],
+          [4,5,6],
+          [7,8,9]])
+
+C = np.array([1,2,3])
+
+D = np.array([1,2,3])
+
+print(np.dot(A,B))
+#print(CD)
 '''
 xyab = transformationMat(1, 2, 0)
 xya1 = transformationMat(2, 2, 0)

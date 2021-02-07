@@ -60,7 +60,7 @@ def gs_initialise(controls: np.array):
 def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondence=None):
     # 2: Set omega and xi to 0
     #global omega, xi
-    omega = Omega()
+    omega = Omega2()
     xi = Xi()
 
     # 3: add 3x3 matrix with infinity on diagonals to omega at x0
@@ -72,14 +72,17 @@ def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondenc
 
         # 5: xhat = the pose after the control has been applied
         xhat = poseMeans[i+1,:]
+        xhat = xhat.reshape((3,1))
+        #xhatMat = np.array(
+        #    [[math.cos(xhat[2]), -math.sin(xhat[2]), xhat[0]],
+        #     [math.sin(xhat[2]), math.cos(xhat[2]), xhat[1]],
+        #     [0., 0., 1.]])
 
         # 6: G = 3x3 matrix of calculations
         jacobianG = np.eye(3)
         if w != 0:
-            #jacobianG[0,2] = (-(v / w) * math.cos(angle2num(poseMeans[0:3,0:3,i]))) + ((v / w) * math.cos(angle2num(poseMeans[0:3,0:3,i]) + w * timeStep))
-            #jacobianG[1,2] = (-(v / w) * math.cos(angle2num(poseMeans[0:3,0:3,i]))) + ((v / w) * math.cos(angle2num(poseMeans[0:3,0:3,i]) + w * timeStep))
             jacobianG[0,2] = (-(v / w) * math.cos(poseMeans[i,2])) + ((v / w) * math.cos(poseMeans[i,2] + w * timeStep))
-            jacobianG[1,2] = (-(v / w) * math.cos(poseMeans[i,2])) + ((v / w) * math.cos(poseMeans[i,2] + w * timeStep))
+            jacobianG[1,2] = (-(v / w) * math.sin(poseMeans[i,2])) + ((v / w) * math.sin(poseMeans[i,2] + w * timeStep))
         else:
             jacobianG[1, 2] = v*timeStep
         print("jacobianG:\n",jacobianG)
@@ -87,23 +90,30 @@ def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondenc
         gt1 = np.vstack((np.transpose(-jacobianG), np.eye(3)))
         gt2 = np.hstack((-jacobianG, np.eye(3)))
         omegaUpdate = np.matmul(np.matmul(gt1, np.linalg.pinv(noiseCovarR)), gt2)
+        print("omegaUpdate:\n",omegaUpdate)
         omega.addPose(omegaUpdate, i+1)
-        #print("Omega:\n",omegaUpdate)
 
         # 8: add same with a bit more to xi
-        #gt3 = np.hstack((xhat-jacobianG * poseMeans[0:3,0:3,i]))
-        gt3 = xhat - np.matmul(jacobianG, poseMeans[i])
+        #prevPoseMat = np.array(
+        #    [[math.cos(poseMeans[i,2]), -math.sin(poseMeans[i,2]), poseMeans[i,0]],
+        #     [math.sin(poseMeans[i,2]), math.cos(poseMeans[i,2]), poseMeans[i,1]],
+        #     [0., 0., 1.]])
+
+        gt3 = xhat - np.matmul(jacobianG, poseMeans[i+1,:].reshape((3,1)))
         xiUpdate = np.matmul(np.matmul(gt1, np.linalg.pinv(noiseCovarR)), gt3)
+        print("xiUpdate:\n",xiUpdate)
+
         xi.addPose(xiUpdate, i+1)
-        #print("Xi:\n", xiUpdate)
 
     # 9: endfor
 
+
+    print("Linearizing measurements\n\n\n")
     # 10: for all measurements zt do
     for i in range(0, measurements.shape[0]):
         measurement = measurements[i]
         time = int(measurement[0])
-        print("Time:",time)
+        print("\nTime:",time)
         # 11: Qt = sigma squared for r, phi and s
         # Skipped as same sensor used, so noise declared globally
 
@@ -127,6 +137,7 @@ def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondenc
         j = lmark[0:3,2]
         j[2] = 0
 
+        print("j:\n",j)
         # TODO this part to next todo is poor, landmarks should be recorded during data collection
         '''
         match = False
@@ -159,34 +170,56 @@ def gs_linearize(controls=None, measurements=None, poseMeans=None, correspondenc
 
         # 14: delta = [[deltax],[deltay]]
         delta = np.array([j[0]-pose[0], j[1]-pose[1]])
+        print("delta:\n",delta)
 
         # 15: q = transpose(delta*delta)
         q = np.matmul(np.transpose(delta),delta)
+        print("q:\n", q)
 
         # 16: zhat = (vector of stuff)
         zhat = np.array([math.sqrt(q), (math.atan2(delta[1],delta[0])-pose[2]), 0])
+        print("zhat:\n", zhat)
 
         # 17: H.i.t = Jacobian
         jacobianH = (1/q)*np.array([[-math.sqrt(q)*delta[0], -math.sqrt(q)*delta[1], 0, math.sqrt(q)*delta[0], math.sqrt(q)*delta[1], 0],
                                     [delta[1], -delta[0], -q, -delta[1], delta[0], 0],
-                                    [0, 0, 0, 0, 0, q]])
+                                    [0, 0, 0, 0, 0, 1]])
+        #                            [0, 0, 0, 0, 0, q]])
+
+        print("jacobianH:\n", jacobianH)
 
         # 18: add H.i.t. and Qt^-1 to omega at xt and mj
-        np.linalg.pinv(noiseCovarQ)
         omegaUpdate = np.matmul(np.transpose(jacobianH), np.linalg.pinv(noiseCovarQ))
         omegaUpdate = np.matmul(omegaUpdate, jacobianH)
+        print("omegaUpdate:\n", omegaUpdate)
         omega.addLandmark(omegaUpdate, time, index)
 
         # 19: add lots of stuff to xi
         ht2 = measurement[1:]-zhat + np.matmul(jacobianH, np.array([pose[0], pose[1], pose[2], j[0], j[1], 0]))
+        print("ht2:\n",ht2)
         xiUpdate = np.matmul(np.transpose(jacobianH), np.linalg.pinv(noiseCovarQ))
         xiUpdate = np.matmul(xiUpdate, ht2)
+        print("xiUpdate:\n", xiUpdate.round())
         xi.addLandmark(xiUpdate, time, index)
+
+        omega.showOmegaDetailed()
         # 20: endfor
 
     # 21: endfor
 
+    '''
+    [[-0.167 -1.167  1.333]
+ [ 0.833 -0.167 -0.667]
+ [-0.333 -0.333  0.667]]
+ 
+ [[ 0.167 -0.667  0.238]
+ [ 1.167 -0.667 -0.762]
+ [ 0.333  0.667  1.047]]'''
+
     # 22: return omega, xi
+    print(omega.omegaMatrix.shape)
+    print(np.matmul(np.linalg.pinv(omega.omegaMatrix), xi.xiVector).round(3))
+    breakpoint()
     return omega, xi
 
 
@@ -390,22 +423,26 @@ if __name__ == "__main__":
     # controls = np.array([[1,0],[1,0],[0,math.pi/2],[1,0],[1,0],[0,math.pi/2],[1,0]])
     # controls = np.array([[2, math.pi/2], [2, math.pi/2], [2, math.pi/2], [2, math.pi/2]])
 
-    pose1 = np.array([[1, 0, 1], [0, 1, 0], [0, 0, 1]])
-    pose2 = np.array([[1, 0, 2], [0, 1, 0], [0, 0, 1]])
-    pose3 = np.array([[0, -1, 3], [1, 0, 1], [0, 0, 1]])
-    #measurements = np.array([[1, math.sqrt(2), math.pi/4, 0],
-    #                         [1, math.sqrt(5), -0.463647, 0],
-    #                         [2, math.sqrt(2), -math.pi/4, 0],
-    #                         [3, 1, 0, 0]])
-
-    measurements = np.array([[1, math.sqrt(2), math.pi / 8, 0],
-                             [1, math.sqrt(2), -math.pi / 8, 0],
+    #pose1 = np.array([[1, 0, 1], [0, 1, 0], [0, 0, 1]])
+    #pose2 = np.array([[1, 0, 2], [0, 1, 0], [0, 0, 1]])
+    #pose3 = np.array([[0, -1, 3], [1, 0, 1], [0, 0, 1]])
+    measurements = np.array([[1, math.sqrt(2), math.pi/4, 0],
                              [1, math.sqrt(5), -0.463647, 0],
-                             [2, math.sqrt(2), -math.pi / 4, 0],
+                             [2, math.sqrt(2), -math.pi/4, 0],
                              [3, 1, 0, 0]])
 
-    #measurements = np.array([])
-    controls = np.array([[1, 0], [1, 0], [math.pi / 2, math.pi / 2]])
+    #measurements = np.array([[1, math.sqrt(2), math.pi / 8, 0],
+    #                         [1, math.sqrt(2), math.pi / 8, 0],
+    #                         [1, math.sqrt(5), -0.463647, 0],
+    #                         [2, math.sqrt(2), -math.pi / 4, 0],
+    #                         [3, 1, 0, 0]])
+
+    measurements = np.array([])
+    #controls = np.array([[10, 0], [10, 0]])
+    controls = np.array([[math.pi / 2, math.pi / 2], [math.pi / 2, math.pi / 2]])
+    #controls = np.array([[math.pi / 4, math.pi / 4], [math.pi / 4, math.pi / 4]])
+    #controls = np.array([[math.pi / 2, math.pi / 2]])
+    #controls = np.array([[1, 0], [1, 0], [math.pi / 2, math.pi / 2]])
 
     #omega.addPose(pose1)
     #omega.addPose(pose2)
@@ -423,6 +460,7 @@ if __name__ == "__main__":
     omega, xi = gs_linearize(controls,measurements, meanPoses)
 
     omega.showOmegaOccupancy()
+    omega.showOmegaDetailed()
     breakpoint()
 
     reducedOmega, reducedXi = gs_reduce(omega,xi)
@@ -431,4 +469,5 @@ if __name__ == "__main__":
     print(pathCovariance.shape)
     print(means[:,:].round(3))
 
-    gs_known_correspondence_test(omega,xi,means,pathCovariance,0,1)
+
+    #gs_known_correspondence_test(omega,xi,means,pathCovariance,0,1)
