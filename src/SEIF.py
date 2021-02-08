@@ -14,6 +14,7 @@ from scipy.stats import multivariate_normal
 import numpy as np
 import math
 import copy
+from collections import deque
 
 timeStep = 1
 motionNoiseCovariance = [1.**2, 1.**2, 1.**2]
@@ -22,7 +23,10 @@ measureNoiseCovariance = [1.**2, 1.**2]
 noiseCovarianceR = np.diag(motionNoiseCovariance)
 noiseCovarianceQ = np.diag(measureNoiseCovariance)
 
-landmarks = np.empty((0, 2))
+landmarks = np.empty((0, 0))
+sparsityN = 0
+active = 0
+toDeactivate = 0
 
 
 def seif_known_correspondence(xi: Xi, omega: Omega2, mean, newControl, newMeasurements):
@@ -102,10 +106,11 @@ def seif_measurement_update(xi, omega, mean, measurements):
         global landmarks
         found = False
         i = 0
-        for x, y in landmarks:
+        #for x, y in landmarks:
+        for n in range(0, landmarks.shape[0], 2):
             # TODO include signature match
-            if (mu_j[0, 0] - x)**2 + (mu_j[1, 0] - y)**2 < 1:
-                mu_j = np.array([[x], [y]])
+            if (mu_j[0, 0] - landmarks[n,0])**2 + (mu_j[1, 0] - landmarks[n+1,0])**2 < 1:
+                mu_j = landmarks[n:n+2,:]
                 found = True
                 break
             i += 1
@@ -113,9 +118,16 @@ def seif_measurement_update(xi, omega, mean, measurements):
         # landmark not seen before, add to map
         if not found:
             if landmarks.shape[0] == 0:
-                landmarks = np.transpose(mu_j)
+                landmarks = mu_j
             else:
-                landmarks = np.concatenate((landmarks, np.transpose(mu_j)), axis=0)
+                landmarks = np.concatenate((landmarks, mu_j), axis=0)
+
+        # manage the active landmarks and mark those that need to be deactivated on this timestep
+        if i not in active:
+            if len(active) == sparsityN and len(toDeactivate) != sparsityN:
+                toDeactivate = active[0]
+            active.append(i)
+        print("active indexes =", active)
 
         # 8
         delta = mu_j - mean[0:2, :]
@@ -139,7 +151,7 @@ def seif_measurement_update(xi, omega, mean, measurements):
         h3 = np.array([[math.sqrt(q) * delta[0, 0], math.sqrt(q) * delta[1, 0]],
                        [-delta[1, 0], delta[0, 0]]])
 
-        h4 = np.zeros((2, 2*landmarks.shape[0] - 2*(i+1)))
+        h4 = np.zeros((2, landmarks.shape[0] - 2*(i+1)))
 
         h_it = 1 / q * np.concatenate((h1, h2, h3, h4), axis=1)
 
@@ -170,10 +182,6 @@ def seif_measurement_update(xi, omega, mean, measurements):
         xiSumMeasurements += xiUpdate
         omegaSumMeasurements += omegaUpdate
 
-        print("xiSum\n:",xiSumMeasurements)
-        print("omegaSum\n:", omegaSumMeasurements)
-        print("\n")
-
     # 13, 14
     if xiSumMeasurements.shape > xi.xiVector.shape:
         newArray = np.zeros(xiSumMeasurements.shape)
@@ -188,34 +196,92 @@ def seif_measurement_update(xi, omega, mean, measurements):
     omega.omegaMatrix += omega.omegaMatrix + omegaSumMeasurements
 
     # 15
-    # breakpoint()
     print((np.linalg.inv(omega.omegaMatrix) @ xi.xiVector).round(3))
+    omega.nPoses = (omega.omegaMatrix.shape[0]-3)//2
+    # breakpoint()
     return xi, omega
 
 
 def seif_update_state_estimation(xi, omega, mean):
+    #breakpoint()
+    global landmarks
+    global active
+    mean = np.concatenate((mean, landmarks), axis=0)
 
-    return
+    # 2
+    #for small number of active map features
+    for i in active:
+        Fi1 = np.zeros((2, 3+2*i))
+        Fi2 = np.identity(2)
+        Fi3 = np.zeros((2, (len(landmarks))-2*(i+1)))
+        Fi = np.concatenate((Fi1, Fi2, Fi3), axis=1)
+        FiTranspose = np.transpose(Fi)
+
+        mean_it = np.linalg.inv(Fi @ omega.omegaMatrix @ FiTranspose) @ Fi @ (xi.xiVector - (omega.omegaMatrix @ mean) + omega.omegaMatrix @ FiTranspose @ Fi @ mean)
+        mean[3+(i*2):3+(i*2)+2, :] = mean_it
+
+    # 9
+    Fx = np.concatenate((np.identity(3), np.zeros((3, landmarks.shape[0]))), axis=1)
+    FxTranspose = np.transpose(Fx)
+
+    # 10
+    updatedMean = np.linalg.inv(Fx @ omega.omegaMatrix @ FxTranspose) @ Fx @ (xi.xiVector - (omega.omegaMatrix @ mean) + (omega.omegaMatrix @ FxTranspose @ Fx @ mean))
+
+    # 11
+    # breakpoint()
+    return updatedMean
 
 
 def seif_sparsification(xi, omega, mean):
-    # 2
-    nEntries = omega.nPoses+omega.nLmarks
-    f_m0 = np.zeros((3, nEntries))
-    f_m0[:, 3:6] = np.identity(3)
+    # breakpoint()
+    global landmarks
+    global active
+    global toDeactivate
 
-    f_xm0 = np.zeros((6, nEntries))
-    f_xm0[0:3, 0:3] = np.identity(3)
-    f_xm0[3:6, 3:6] = np.identity(3)
+    mean = np.concatenate((mean, landmarks), axis=0)
 
-    f_x = np.zeros((3, nEntries))
-    f_x[:0:3] = np.identity(3)
+    print(omega.omegaMatrix.round(3))
+    # 2 Generate projection matrices
+    omegaSize = omega.omegaMatrix.shape
 
-    #infoMatrix0 =
+    F_xActDeact = np.zeros((omegaSize))
+    F_xActDeact[0:3,0:3] = np.identity(3)
 
-    #infoMatrix1 =
+    F_deact = np.zeros((omegaSize))
 
-    return
+    F_xDeact = np.zeros((omegaSize))
+    F_xDeact[0:3, 0:3] = np.identity(3)
+
+    F_x = np.zeros((omegaSize))
+    F_x[0:3,0:3] = np.identity(3)
+
+    for i in active:
+        F_xActDeact[3+(i*2):5+(i*2), 3+(i*2):5+(i*2)] = np.identity(2)
+
+    for i in toDeactivate:
+        F_xActDeact[3 + (i*2):5 + (i*2), 3 + (i*2):5 + (i*2)] = np.identity(2)
+        F_xDeact[3 + (i*2):5 + (i*2), 3 + (i*2):5 + (i*2)] = np.identity(2)
+        F_deact[3 + (i*2):5 + (i*2), 3 + (i*2):5 + (i*2)] = np.identity(2)
+
+    # 2.1 Missing from book
+    omega_0t = F_xActDeact @ omega.omegaMatrix @ F_xActDeact
+
+    omega1 = -(omega_0t @ F_deact @ np.linalg.pinv(F_deact @ omega_0t @ F_deact) @ F_deact @ omega_0t)
+
+    omega2 =  omega_0t @ F_xDeact @ np.linalg.pinv(F_xDeact @ omega_0t @ F_xDeact) @ F_xDeact @ omega_0t
+
+    omega3 = -(omega.omegaMatrix @ F_x @ np.linalg.pinv(F_x @ omega.omegaMatrix @ F_x) @ F_x @ omega.omegaMatrix)
+
+    sparsifiedOmega = omega.omegaMatrix + omega1 + omega2 + omega3
+
+    sparsifiedXi = xi.xiVector + (sparsifiedOmega - omega.omegaMatrix) @ mean
+    print(sparsifiedOmega.round(3))
+    print("\n")
+    print(sparsifiedXi.round(3))
+    print("\n")
+    print((np.linalg.inv(sparsifiedOmega) @ sparsifiedXi).round(3))
+    breakpoint()
+    return xi, omega
 
 
 def seif_correspondence_test():
@@ -229,10 +295,14 @@ def xya_to_matrix(xya):
 
 
 if __name__ == "__main__":
-
+    # ==INIT==
+    sparsityN = 2
+    active = deque(maxlen=sparsityN)
+    toDeactivate = deque(maxlen=sparsityN)
     omega = Omega2()
     xi = Xi()
 
+    # ==CONTROLS DEFINITION==
     #mean = np.array([[0, -1, 2*math.pi]]).transpose()
     mean = np.array([[0, -1, 0]]).transpose()
     xi.xiVector[0:3] = mean
@@ -248,10 +318,14 @@ if __name__ == "__main__":
                                  [5.0000001, -math.pi / 4, (0, 255, 0)]])
 
 
+    # ==MAIN BEGIN==
     xi, omega, mean = seif_motion_update(xi, omega, mean, control)
 
     #breakpoint()
-    seif_measurement_update(xi, omega, mean, measurementsTest)
-    breakpoint()
+    xi, omega = seif_measurement_update(xi, omega, mean, measurementsTest)
+
     mean = seif_update_state_estimation(xi, omega, mean)
+    print(mean.round(3))
+
+    xi, omega = seif_sparsification(xi, omega, mean)
     breakpoint()
