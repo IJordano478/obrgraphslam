@@ -95,20 +95,15 @@ class Graph():
 #gs_linearize([1,2,3,4],[12,65,900],"c","mean")
 
 
-A = np.array([[1,2,3],
-          [4,5,6],
-          [7,8,9]])
+A = np.ones((9,9))
 
-B = np.array([[1,2,3],
-          [4,5,6],
-          [7,8,9]])
+B = np.diag([0,0,0,1,1,0,0,0,0])
 
-C = np.array([1,2,3])
+C = np.array([[0,0,0,1,0,0,0,0,0],
+              [0,0,0,0,1,0,0,0,0]])
 
-D = np.array([1,2,3])
-
-print(np.dot(A,B))
-#print(CD)
+print(A)
+print(A@C.transpose())
 '''
 xyab = transformationMat(1, 2, 0)
 xya1 = transformationMat(2, 2, 0)

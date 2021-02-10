@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-GraphSLAM based on Thrun et al
+Online GraphSLAM (SEIF) based on Probabilistic Robotics (2004), Thrun et al
 
 
 "Sparse Bayesian Information Filters for Localization and Mapping" by Matthew Walter)
@@ -39,8 +39,8 @@ def seif_known_correspondence(xi: Xi, omega: Omega2, mean, newControl, newMeasur
 
 def seif_motion_update(xi, omega, mean, control):
     # breakpoint()
-    print("mean at time t-1:\n",mean.round(3))
-    print("control (", control[0], ",", control[1], ")")
+    #print("mean at time t-1:\n",mean.round(3))
+    #print("control (", control[0], ",", control[1], ")")
     v, w = control
 
     # 2
@@ -80,7 +80,7 @@ def seif_motion_update(xi, omega, mean, control):
     # 11
     mean[0:3,:] += delta
 
-    print("mean at time t:\n", mean.round(3))
+    #print("mean at time t:\n", mean.round(3))
     # 12
     # breakpoint()
     return xi, omega, mean
@@ -88,7 +88,8 @@ def seif_motion_update(xi, omega, mean, control):
 
 def seif_measurement_update(xi, omega, mean, measurements):
     # breakpoint()
-    toDeactivate = deque(maxlen=sparsityN)
+    a = (np.linalg.inv(omega.omegaMatrix) @ xi.xiVector).round(3)
+    toDeactivate = deque([], maxlen=sparsityN)
 
     # 3
     xiSumMeasurements = np.zeros((1, 1))
@@ -108,7 +109,7 @@ def seif_measurement_update(xi, omega, mean, measurements):
         for n in range(0, (mean.shape[0]-3)//2):
             # TODO include signature match
             # if (mu_j[0, 0] - landmarks[n,0])**2 + (mu_j[1, 0] - landmarks[n+1,0])**2 < 1:
-            if (mu_j[0, 0] - mean[3+2*n, 0]) ** 2 + (mu_j[1, 0] - mean[4+2*n, 0]) ** 2 < 1:
+            if (mu_j[0, 0] - mean[3+2*n, 0]) ** 2 + (mu_j[1, 0] - mean[4+2*n, 0]) ** 2 < 0.5:
                 mu_j = mean[3+2*n:3+2*n+2, :]
                 found = True
                 break
@@ -121,32 +122,38 @@ def seif_measurement_update(xi, omega, mean, measurements):
         # manage the active landmarks and mark those that need to be deactivated on this timestep
         if i not in active:
             if len(active) == sparsityN and len(toDeactivate) != sparsityN:
-                toDeactivate = active[0]
+                toDeactivate.append(active[0])
             active.append(i)
-        print("active indexes =", active)
+        #print("active indexes =", active)
 
         # 8
         delta = mu_j - mean[0:2, :]
-
+        d = delta.round(3)
         # 9
         q = (np.transpose(delta) @ delta)[0][0]
 
         # 10
+        angle = math.atan2(delta[1, 0], delta[0, 0])
         zhat = np.array([[math.sqrt(q)],
-                         [math.atan2(delta[1, 0], delta[0,0]) - mean[2, 0]]])
+                         [math.atan2(delta[1, 0], delta[0, 0]) - mean[2, 0]]])
 
-        #print(mean.round(3))
+        #bring angle back into -pi < theta < pi range
+        while zhat[1, :] > math.pi:
+            zhat[1, :] -= 2*math.pi
+        while zhat[1, :] < -math.pi:
+            zhat[1, :] += 2*math.pi
+
         # 11
         # jacobian H must be made of 4 different matrix components; the pose, 0s, the landmark, 0s.
         h1 = np.array([[-math.sqrt(q) * delta[0, 0], -math.sqrt(q) * delta[1, 0], 0],
                        [delta[1, 0], -delta[0, 0], -q]])
 
-        h2 = np.zeros((2, 2 * (i+1) - 2))
+        h2 = np.zeros((2, 2 * (i)))
 
         h3 = np.array([[math.sqrt(q) * delta[0, 0], math.sqrt(q) * delta[1, 0]],
                        [-delta[1, 0], delta[0, 0]]])
 
-        h4 = np.zeros((2, (mean.shape[0]-3)//2 - (i+1)))
+        h4 = np.zeros((2, (mean.shape[0]-3) - 2*(i+1)))
 
         h_it = 1 / q * np.concatenate((h1, h2, h3, h4), axis=1)
 
@@ -174,6 +181,7 @@ def seif_measurement_update(xi, omega, mean, measurements):
         # xiSumMeasurements += np.transpose(h_it) @ np.linalg.inv(noiseCovarianceQ) @ (z - zhat + np.multiply(h_it, mean[0:2]))
         xiSumMeasurements += xiUpdate
         omegaSumMeasurements += omegaUpdate
+        a = (np.linalg.inv(omega.omegaMatrix) @ xi.xiVector).round(3)
 
     # 13, 14
     if xiSumMeasurements.shape > xi.xiVector.shape:
@@ -185,13 +193,16 @@ def seif_measurement_update(xi, omega, mean, measurements):
         newMatrix[0:omega.omegaMatrix.shape[0], 0:omega.omegaMatrix.shape[0]] = omega.omegaMatrix
         omega.omegaMatrix = newMatrix
 
-    xi.xiVector += xi.xiVector + xiSumMeasurements
-    omega.omegaMatrix += omega.omegaMatrix + omegaSumMeasurements
+    b = np.linalg.pinv(newMatrix) @ newArray
+    #xi.xiVector += xi.xiVector + xiSumMeasurements
+    #omega.omegaMatrix += omega.omegaMatrix + omegaSumMeasurements
+    xi.xiVector += xiSumMeasurements
+    omega.omegaMatrix += omegaSumMeasurements
 
     # 15
-    #print((np.linalg.inv(omega.omegaMatrix) @ xi.xiVector).round(3))
+    a = (np.linalg.inv(omega.omegaMatrix) @ xi.xiVector).round(3)
     omega.nPoses = (omega.omegaMatrix.shape[0]-3)//2
-    # breakpoint()
+    #breakpoint()
     return xi, omega, mean
 
 
@@ -209,6 +220,17 @@ def seif_update_state_estimation(xi, omega, mean):
         Fi = np.concatenate((Fi1, Fi2, Fi3), axis=1)
         FiTranspose = np.transpose(Fi)
 
+        m = mean[3+2*i:5+2*i, :]
+        a = np.linalg.inv(Fi @ omega.omegaMatrix @ FiTranspose)
+        b = Fi @ (xi.xiVector - (omega.omegaMatrix @ mean) + omega.omegaMatrix @ FiTranspose @ Fi @ mean)
+        c = (a @ b).round(3)
+
+        a2 = np.linalg.inv(omega.omegaMatrix[3+2*i:5+2*i, 3+2*i:5+2*i])
+        b2 = (xi.xiVector - (omega.omegaMatrix @ mean))[3+2*i:5+2*i, :] + omega.omegaMatrix[3+2*i:5+2*i, 3+2*i:5+2*i] @ mean[3+2*i:5+2*i, :]
+        c2 = (a2 @ b2).round(3)
+
+        a3 = (np.linalg.inv(omega.omegaMatrix) @ xi.xiVector)[3+2*i:5+2*i, :].round(3)
+
         mean_it = np.linalg.inv(Fi @ omega.omegaMatrix @ FiTranspose) @ Fi @ (xi.xiVector - (omega.omegaMatrix @ mean) + omega.omegaMatrix @ FiTranspose @ Fi @ mean)
         mean[3+(i*2):3+(i*2)+2, :] = mean_it
 
@@ -217,6 +239,9 @@ def seif_update_state_estimation(xi, omega, mean):
     FxTranspose = np.transpose(Fx)
 
     # 10
+    a = np.linalg.inv(omega.omegaMatrix[0:3,0:3])
+    b = (xi.xiVector - (omega.omegaMatrix @ mean) + (omega.omegaMatrix @ FxTranspose @ Fx @ mean))
+    updatedMeanV2 = np.linalg.inv(omega.omegaMatrix[0:3,0:3])
     updatedMean = np.linalg.inv(Fx @ omega.omegaMatrix @ FxTranspose) @ Fx @ (xi.xiVector - (omega.omegaMatrix @ mean) + (omega.omegaMatrix @ FxTranspose @ Fx @ mean))
     mean[0:3,:] = updatedMean
     # 11
@@ -264,13 +289,65 @@ def seif_sparsification(xi, omega, mean):
 
     sparsifiedXi = xi.xiVector + (sparsifiedOmega - omega.omegaMatrix) @ mean
 
-    #print((np.linalg.inv(sparsifiedOmega) @ sparsifiedXi).round(3))
+    omega.omegaMatrix = sparsifiedOmega
+    xi.xiVector = sparsifiedXi
     # breakpoint()
     return xi, omega
 
 
-def seif_correspondence_test():
-    return
+def seif_correspondence_test(omega, xi, mean, mj, mk):
+    # 2
+    #blanketJ = np.zeros(omega.omegaMatrix.shape)
+    #blanketJ[3 + (mj * 2):5 + (mj * 2), 3 + (mj * 2):5 + (mj * 2)] = np.identity(2)
+    #blanketJ =
+    # 3
+    #blanketK = np.zeros(omega.omegaMatrix.shape)
+    #blanketK[3+(mk*2):5+(mk*2),3+(mk*2):5+(mk*2)] = np.identity(2)
+
+
+
+    # 4-7
+    if not np.allclose(omega.omegaMatrix[3 + (2 * mj):5 + (2 * mj), 3 + (2 * mk):5 + (2 * mk)], np.zeros((2,2))):
+        blanketB = np.zeros(omega.omegaMatrix.shape)
+        blanketB[3 + (2 * mj):5 + (2 * mj), :] = omega.omegaMatrix[3 + (2 * mj):5 + (2 * mj), :]
+        blanketB[:, 3 + (2 * mj):5 + (2 * mj)] = omega.omegaMatrix[:, 3 + (2 * mj):5 + (2 * mj)]
+        blanketB[3 + (2 * mk):5 + (2 * mk), :] = omega.omegaMatrix[3 + (2 * mk):5 + (2 * mk), :]
+        blanketB[:, 3 + (2 * mk):5 + (2 * mk)] = omega.omegaMatrix[:, 3 + (2 * mk):5 + (2 * mk)]
+
+        blanketXiB = np.zeros((xi.xiVector.shape))
+        blanketXiB[3 + (2 * mj):5 + (2 * mj), :] = xi.xiVector[3 + (2 * mj):5 + (2 * mj), :]
+        blanketXiB[3 + (2 * mk):5 + (2 * mk), :] = xi.xiVector[3 + (2 * mk):5 + (2 * mk), :]
+    else:
+        # 6
+        # TODO perform breadth first search of shortest path
+        return
+    print(blanketB.round(3))
+
+    # 8
+
+
+    # 9
+
+    # 10
+    covB = np.linalg.pinv(blanketB)
+
+    # 11
+    meanB = covB @ blanketXiB
+    print(meanB.round(5))
+    # 12
+    F_delta = np.zeros(omega.omegaMatrix.shape)
+    F_delta[3+(mj*2):5+(mj*2),3+(mj*2):5+(mj*2)] = np.identity(2)
+    F_delta[3+(mk*2):5+(mk*2),3+(mk*2):5+(mk*2)] = -np.identity(2)
+    # gaussian = multivariate_normal()
+
+    # 13
+    covDelta = np.linalg.pinv(F_delta @ omega.omegaMatrix @ F_delta.transpose())
+    print(covDelta.round(3))
+    # 14
+    meanDelta = covDelta @ xi.xiVector
+
+    # 15
+    return multivariate_normal(meanDelta, covDelta)
 
 
 # def xya_to_matrix(xya):
@@ -281,11 +358,12 @@ def seif_correspondence_test():
 
 if __name__ == "__main__":
     # ==INIT==
-    sparsityN = 2
-    active = deque(maxlen=sparsityN)
-    toDeactivate = deque(maxlen=sparsityN)
+    sparsityN = 5
+    active = deque([], maxlen=sparsityN)
+    toDeactivate = deque([], maxlen=sparsityN)
     omega = Omega2()
     xi = Xi()
+    time = 0
 
     # ==CONTROLS DEFINITION==
     # mean = np.array([[0, -1, 2*math.pi]]).transpose()
@@ -293,36 +371,138 @@ if __name__ == "__main__":
     xi.xiVector[0:3] = mean
     # print(xi.xiVector)
 
-    control = (1, 0)
-    measurements = np.array([[math.sqrt(2), math.pi / 4, (255, 0, 0)],
-                             [math.sqrt(2), math.pi / 4, (255, 0, 0)],
-                             [math.sqrt(5), -0.463647, (0, 0, 255)]])
-
-    # measurements = np.array([[1, math.sqrt(2), math.pi / 8, 0],
-    #                         [1, math.sqrt(2), math.pi / 8, 0],
-    #                         [1, math.sqrt(5), -0.463647, 0],
-    #                         [2, math.sqrt(2), -math.pi / 4, 0],
-    #                         [3, 1, 0, 0]])
-
 
     # ==MAIN BEGIN==
-    xi, omega, mean = seif_motion_update(xi, omega, mean, control)
+    # do initial observation for t = 0
+    measurements = np.array([[math.sqrt(1), math.pi / 2, (255, 165, 0)],
+                             [math.sqrt(2), math.pi / 4, (255, 255, 0)],
+                             [math.sqrt(2), -math.pi / 4, (0, 0, 255)],
+                             [math.sqrt(1), -math.pi / 2, (255, 165, 0)]])
     xi, omega, mean = seif_measurement_update(xi, omega, mean, measurements)
     mean = seif_update_state_estimation(xi, omega, mean)
     xi, omega = seif_sparsification(xi, omega, mean)
+    print("Time:", time)
+    print("Mean:\n", mean.round(4))
+
 
     control = (1, 0)
-    measurements = np.array([[math.sqrt(2), -math.pi / 4, (0, 0, 255)]])
+    measurements = np.array([[math.sqrt(1), math.pi / 2, (255, 255, 0)],
+                             [math.sqrt(2), math.pi / 4, (255, 255, 0)],
+                             [math.sqrt(2), -math.pi / 4, (0, 0, 255)],
+                             [math.sqrt(1), -math.pi / 2, (0, 0, 255)]])
     xi, omega, mean = seif_motion_update(xi, omega, mean, control)
     xi, omega, mean = seif_measurement_update(xi, omega, mean, measurements)
     mean = seif_update_state_estimation(xi, omega, mean)
     xi, omega = seif_sparsification(xi, omega, mean)
-    print(mean)
+    time += 1
+    print("Time:", time)
+    print("Mean:\n", mean.round(3),"\n")
+
+
+    control = (1, 0)
+    measurements = np.array([[math.sqrt(1), math.pi / 2, (255, 255, 0)],
+                             [math.sqrt(1), -math.pi / 2, (0, 0, 255)]])
+    xi, omega, mean = seif_motion_update(xi, omega, mean, control)
+    xi, omega, mean = seif_measurement_update(xi, omega, mean, measurements)
+    mean = seif_update_state_estimation(xi, omega, mean)
+    xi, omega = seif_sparsification(xi, omega, mean)
+    time += 1
+    print("Time:", time)
+    print("Mean:\n", mean.round(3),"\n")
+
 
     control = (math.pi/2, math.pi/2)
-    measurements = np.array([[1, 0, (0, 255, 0)]])
+    measurements = np.array([[math.sqrt(1), math.pi / 2, (255, 255, 0)],
+                             [math.sqrt(1), -math.pi / 2, (0, 0, 255)]])
+    xi, omega, mean = seif_motion_update(xi, omega, mean, control)
+    xi, omega, mean = seif_measurement_update(xi, omega, mean, measurements)
+    print(omega.omegaMatrix.round(1))
+    mean = seif_update_state_estimation(xi, omega, mean)
+    xi, omega = seif_sparsification(xi, omega, mean)
+    time += 1
+    print("Time:", time)
+    print("Mean:\n", mean.round(3),"\n")
+
+
+    control = (math.pi / 2, math.pi / 2)
+    measurements = np.array([[math.sqrt(1), math.pi / 2, (255, 255, 0)],
+                             [math.sqrt(2), math.pi / 4, (255, 255, 0)],
+                             [math.sqrt(2), -math.pi / 4, (0, 0, 255)],
+                             [math.sqrt(1), -math.pi / 2, (0, 0, 255)]])
     xi, omega, mean = seif_motion_update(xi, omega, mean, control)
     xi, omega, mean = seif_measurement_update(xi, omega, mean, measurements)
     mean = seif_update_state_estimation(xi, omega, mean)
     xi, omega = seif_sparsification(xi, omega, mean)
-    print(mean)
+    time += 1
+    print("Time:", time)
+    print("Mean:\n", mean.round(3),"\n")
+
+
+    control = (2, 0)
+    measurements = np.array([[math.sqrt(1), math.pi / 2, (255, 255, 0)],
+                             [math.sqrt(2), math.pi / 4, (255, 255, 0)],
+                             [math.sqrt(2), -math.pi / 4, (0, 0, 255)],
+                             [math.sqrt(1), -math.pi / 2, (0, 0, 255)]])
+    xi, omega, mean = seif_motion_update(xi, omega, mean, control)
+    xi, omega, mean = seif_measurement_update(xi, omega, mean, measurements)
+    mean = seif_update_state_estimation(xi, omega, mean)
+    xi, omega = seif_sparsification(xi, omega, mean)
+    time += 1
+    print("Time:", time)
+    print("Mean:\n", mean.round(3),"\n")
+
+
+    control = (2, 0)
+    measurements = np.array([[math.sqrt(1), math.pi / 2, (255, 255, 0)],
+                             [math.sqrt(1), -math.pi / 2, (0, 0, 255)]])
+    xi, omega, mean = seif_motion_update(xi, omega, mean, control)
+    xi, omega, mean = seif_measurement_update(xi, omega, mean, measurements)
+    mean = seif_update_state_estimation(xi, omega, mean)
+    xi, omega = seif_sparsification(xi, omega, mean)
+    time += 1
+    print("Time:", time)
+    print("Mean:\n", mean.round(3),"\n")
+
+
+    control = (math.pi / 2, math.pi / 2)
+    measurements = np.array([[math.sqrt(1), math.pi / 2, (255, 255, 0)],
+                             [math.sqrt(1), -math.pi / 2, (0, 0, 255)]])
+    xi, omega, mean = seif_motion_update(xi, omega, mean, control)
+    xi, omega, mean = seif_measurement_update(xi, omega, mean, measurements)
+    mean = seif_update_state_estimation(xi, omega, mean)
+    xi, omega = seif_sparsification(xi, omega, mean)
+    time += 1
+    print("Time:", time)
+    print("Mean:\n", mean.round(3),"\n")
+
+
+    control = (math.pi / 2, math.pi / 2)
+    measurements = np.array([[math.sqrt(1), math.pi / 2, (255, 255, 0)],
+                             [math.sqrt(2), math.pi / 4, (255, 255, 0)],
+                             [math.sqrt(2), -math.pi / 4, (0, 0, 255)],
+                             [math.sqrt(1), -math.pi / 2, (0, 0, 255)]])
+    xi, omega, mean = seif_motion_update(xi, omega, mean, control)
+    xi, omega, mean = seif_measurement_update(xi, omega, mean, measurements)
+    mean = seif_update_state_estimation(xi, omega, mean)
+    xi, omega = seif_sparsification(xi, omega, mean)
+    time += 1
+    print("Time:", time)
+    print("Mean:\n", mean.round(3),"\n")
+
+
+    control = (2, 0)
+    measurements = np.array([[math.sqrt(1), math.pi / 2, (255, 165, 0)],
+                             [math.sqrt(2), math.pi / 4, (255, 255, 0)],
+                             [math.sqrt(2), -math.pi / 4, (0, 0, 255)],
+                             [math.sqrt(1), -math.pi / 2, (255, 165, 0)]])
+    xi, omega, mean = seif_motion_update(xi, omega, mean, control)
+    xi, omega, mean = seif_measurement_update(xi, omega, mean, measurements)
+    mean = seif_update_state_estimation(xi, omega, mean)
+    xi, omega = seif_sparsification(xi, omega, mean)
+    time += 1
+    print("Time:", time)
+    print("Mean:\n", mean.round(3),"\n")
+
+    print((np.linalg.inv(omega.omegaMatrix) @ xi.xiVector).round(2))
+    breakpoint()
+    seif_correspondence_test(omega, xi, mean, 0, 1)
