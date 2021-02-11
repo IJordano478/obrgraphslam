@@ -11,7 +11,9 @@ from src.omega import *
 from scipy.linalg import fractional_matrix_power
 from scipy.stats import multivariate_normal
 
+
 import numpy as np
+import matplotlib.pyplot as plt
 import math
 import copy
 from collections import deque
@@ -109,7 +111,7 @@ def seif_measurement_update(xi, omega, mean, measurements):
         for n in range(0, (mean.shape[0]-3)//2):
             # TODO include signature match
             # if (mu_j[0, 0] - landmarks[n,0])**2 + (mu_j[1, 0] - landmarks[n+1,0])**2 < 1:
-            if (mu_j[0, 0] - mean[3+2*n, 0]) ** 2 + (mu_j[1, 0] - mean[4+2*n, 0]) ** 2 < 0.5:
+            if (mu_j[0, 0] - mean[3+2*n, 0]) ** 2 + (mu_j[1, 0] - mean[4+2*n, 0]) ** 2 < 0.1:
                 mu_j = mean[3+2*n:3+2*n+2, :]
                 found = True
                 break
@@ -133,7 +135,6 @@ def seif_measurement_update(xi, omega, mean, measurements):
         q = (np.transpose(delta) @ delta)[0][0]
 
         # 10
-        angle = math.atan2(delta[1, 0], delta[0, 0])
         zhat = np.array([[math.sqrt(q)],
                          [math.atan2(delta[1, 0], delta[0, 0]) - mean[2, 0]]])
 
@@ -303,11 +304,12 @@ def seif_correspondence_test(omega, xi, mean, mj, mk):
     # 3
     #blanketK = np.zeros(omega.omegaMatrix.shape)
     #blanketK[3+(mk*2):5+(mk*2),3+(mk*2):5+(mk*2)] = np.identity(2)
-
+    print(omega.omegaMatrix[3 + (2 * mj):5 + (2 * mj), 3 + (2 * mk):5 + (2 * mk)])
 
 
     # 4-7
     if not np.allclose(omega.omegaMatrix[3 + (2 * mj):5 + (2 * mj), 3 + (2 * mk):5 + (2 * mk)], np.zeros((2,2))):
+    #if True:
         blanketB = np.zeros(omega.omegaMatrix.shape)
         blanketB[3 + (2 * mj):5 + (2 * mj), :] = omega.omegaMatrix[3 + (2 * mj):5 + (2 * mj), :]
         blanketB[:, 3 + (2 * mj):5 + (2 * mj)] = omega.omegaMatrix[:, 3 + (2 * mj):5 + (2 * mj)]
@@ -319,10 +321,76 @@ def seif_correspondence_test(omega, xi, mean, mj, mk):
         blanketXiB[3 + (2 * mk):5 + (2 * mk), :] = xi.xiVector[3 + (2 * mk):5 + (2 * mk), :]
     else:
         # 6
-        # TODO perform breadth first search of shortest path
-        return
-    print(blanketB.round(3))
+        # A* searching the matrix
 
+        # open = [landmarkN, parentN, x, y, F: G+H, G: The cost to get to this node, H: The heuristic to final node]
+        open_ = np.array([[float(mj), None, mean[3+(mj*2), 0], mean[4+(mj*2), 0],  0, 0, math.sqrt((mean[3+(mj*2), :]-mean[3+(mk*2), :])**2 + (mean[4+(mj*2), :]-mean[4+(mk*2), :])**2)]])
+        closed_ = np.empty((0, 7))
+
+        while True:
+            #breakpoint()
+            lowestF = (np.where(open_[:, 4] == np.amin(open_[:, 4])))[0]
+            closed_ = np.concatenate((closed_, open_[lowestF, :]), axis=0)
+
+            open_ = np.delete(open_, lowestF, 0)
+
+            # Look at all available links to nodes, only do something if a link exists (and it isn't the current node)
+            for i in range(3, omega.omegaMatrix.shape[0], 2):
+                if (not np.allclose(omega.omegaMatrix[3+int(closed_[-1, 0])*2:5+int(closed_[-1, 0])*2, i:i + 2], np.zeros((2, 2)))) and closed_[-1, 0] != (i-3)//2:
+
+                    linkLmark = (i-3)//2
+                    #if node is already in closed_ then ignore it
+                    if len(np.where(closed_[:, 0] == linkLmark)[0]) > 0:
+                        continue
+                    # if new node is not in open, add it with all its characteristics
+                    elif len(np.where(open_[:, 0] == linkLmark)[0]) == 0:
+                        x = mean[i, 0]
+                        y = mean[i+1, 0]
+                        parent = int(closed_[-1, 0])
+                        g = closed_[np.where(closed_[:, 0] == parent), 5][0, 0] + math.sqrt((x-mean[3+(parent*2), :])**2 + (y-mean[4+(parent*2), :])**2)
+                        h = math.sqrt((x-mean[3+(mk*2), :])**2 + (y-mean[4+(mk*2), :])**2)
+                        f = g+h
+                        open_ = np.concatenate((open_, np.array([[float(linkLmark), float(parent), x, y, f, g, h]])), axis=0)
+
+                    # else new node is already in open, update it if a better route is available
+                    else:
+                        # index of item in open_
+                        openi = int(np.where(open_[:, 0] == linkLmark)[0])
+                        x = open_[openi, 2]
+                        y = open_[openi, 3]
+                        parent = closed_[-1, 0]
+                        g = closed_[np.where(closed_[:, 0] == parent), 5][0, 0] + math.sqrt((x - mean[3 + (int(parent) * 2), :]) ** 2 + (y - mean[4 + (int(parent) * 2), :]) ** 2)
+
+                        if g < open_[openi, 5]:
+                            open_[openi, 1] = parent
+                            open_[openi, 5] = g
+                            open_[openi, 4] = open_[openi, 5] + open_[openi, 6]
+
+            if (closed_[-1, 0] == float(mk)):
+                break
+            if (open_.size == 0):
+                break
+
+        # Use the output data from the A* to check whether a path exists and what it is
+        if int(closed_[-1, 0]) != mk:
+            return 0
+
+        path = np.array([mk])
+        while path[-1] != mj:
+            next = int(closed_[(np.where(closed_[:, 0] == float(path[-1])))[0], 1])
+            path = np.concatenate((path, np.array([next])), axis=0)
+        print("DA shortest path through nodes:\n", path)
+
+        # Create the markov blanket
+        blanketB = np.zeros(omega.omegaMatrix.shape)
+        for l in path:
+            blanketB[3 + (l * 2):5 + (l * 2), :] = omega.omegaMatrix[3 + (l * 2):5 + (l * 2), :]
+            blanketB[:, 3 + (l * 2):5 + (l * 2)] = omega.omegaMatrix[:, 3 + (l * 2):5 + (l * 2)]
+
+        np.savetxt("MarkovBlanket.csv", blanketB, fmt='%   1.3f', delimiter=",")
+
+    print(blanketB.round(2))
+    breakpoint()
     # 8
 
 
@@ -354,6 +422,55 @@ def seif_correspondence_test(omega, xi, mean, mj, mk):
 #    if len(xya.shape) > 1:
 #        return np.mat([[math.cos(xya[2][0]), -math.sin(xya[2][0]), xya[0][0]], [math.sin(xya[2][0]), math.cos(xya[2][0]), xya[1][0]], [0., 0., 1.]])
 #    return np.mat([[math.cos(xya[2]), -math.sin(xya[2]), xya[0]], [math.sin(xya[2]), math.cos(xya[2]), xya[1]], [0., 0., 1.]])
+def plot_graph_from_mean(means):
+    x = np.array([])
+    y = np.array([])
+
+    for i in range(3,means.shape[0],2):
+        x = np.append(x, means[i,0])
+        y = np.append(y, means[i+1, 0])
+
+    print(x)
+    print(y)
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.scatter(x, y, marker="x")
+    plt.show()
+    return
+
+def plot_graph_from_omega(omega, mean, active=False, connections=False):
+    if type(omega) == Omega2:
+        omega = omega.omegaMatrix
+
+    x = np.array([])
+    y = np.array([])
+
+    for i in range(3, mean.shape[0], 2):
+        x = np.append(x, mean[i, 0])
+        y = np.append(y, mean[i + 1, 0])
+
+    print(x)
+    print(y)
+    fig, ax = plt.subplots(figsize=(10, 10))
+    axes = plt.gca()
+    axes.set_xlim([-4, 4])
+    axes.set_ylim([-2, 4])
+
+    if connections == True:
+        for r in range(3, omega.shape[0], 2):
+            for c in range(3, omega.shape[0], 2):
+                if not np.allclose(omega[r:r+2, c:c+2], np.zeros((2, 2))):
+                    plt.plot([mean[r, 0], mean[c, 0]], [mean[r+1, 0], mean[c + 1, 0]], color="Black", lw=1)
+
+    if active == True:
+        for i in range(3, omega.shape[0], 2):
+            if not np.allclose(omega[0:3, i:i + 2], np.zeros((3, 2))):
+                plt.plot([mean[0,0], mean[i,0]], [mean[1,0], mean[i+1,0]], color="Red")
+
+    ax.scatter(x, y, marker="*")
+    ax.scatter(mean[0, 0], mean[1, 0], marker="o")
+
+    plt.show()
+    return
 
 
 if __name__ == "__main__":
@@ -383,7 +500,7 @@ if __name__ == "__main__":
     xi, omega = seif_sparsification(xi, omega, mean)
     print("Time:", time)
     print("Mean:\n", mean.round(4))
-
+    #plot_graph_from_omega(omega.omegaMatrix, mean, active=True, connections=True)
 
     control = (1, 0)
     measurements = np.array([[math.sqrt(1), math.pi / 2, (255, 255, 0)],
@@ -397,7 +514,7 @@ if __name__ == "__main__":
     time += 1
     print("Time:", time)
     print("Mean:\n", mean.round(3),"\n")
-
+    #plot_graph_from_omega(omega.omegaMatrix, mean, active=True, connections=True)
 
     control = (1, 0)
     measurements = np.array([[math.sqrt(1), math.pi / 2, (255, 255, 0)],
@@ -409,6 +526,7 @@ if __name__ == "__main__":
     time += 1
     print("Time:", time)
     print("Mean:\n", mean.round(3),"\n")
+    #plot_graph_from_omega(omega.omegaMatrix, mean, active=True, connections=True)
 
 
     control = (math.pi/2, math.pi/2)
@@ -422,6 +540,7 @@ if __name__ == "__main__":
     time += 1
     print("Time:", time)
     print("Mean:\n", mean.round(3),"\n")
+    #plot_graph_from_omega(omega.omegaMatrix, mean, active=True, connections=True)
 
 
     control = (math.pi / 2, math.pi / 2)
@@ -436,6 +555,7 @@ if __name__ == "__main__":
     time += 1
     print("Time:", time)
     print("Mean:\n", mean.round(3),"\n")
+    #plot_graph_from_omega(omega.omegaMatrix, mean, active=True, connections=True)
 
 
     control = (2, 0)
@@ -450,6 +570,7 @@ if __name__ == "__main__":
     time += 1
     print("Time:", time)
     print("Mean:\n", mean.round(3),"\n")
+    #plot_graph_from_omega(omega.omegaMatrix, mean, active=True, connections=True)
 
 
     control = (2, 0)
@@ -462,6 +583,7 @@ if __name__ == "__main__":
     time += 1
     print("Time:", time)
     print("Mean:\n", mean.round(3),"\n")
+    #plot_graph_from_omega(omega.omegaMatrix, mean, active=True, connections=True)
 
 
     control = (math.pi / 2, math.pi / 2)
@@ -474,13 +596,14 @@ if __name__ == "__main__":
     time += 1
     print("Time:", time)
     print("Mean:\n", mean.round(3),"\n")
+    #plot_graph_from_omega(omega.omegaMatrix, mean, active=True, connections=True)
 
 
     control = (math.pi / 2, math.pi / 2)
     measurements = np.array([[math.sqrt(1), math.pi / 2, (255, 255, 0)],
                              [math.sqrt(2), math.pi / 4, (255, 255, 0)],
                              [math.sqrt(2), -math.pi / 4, (0, 0, 255)],
-                             [math.sqrt(1), -math.pi / 2, (0, 0, 255)]])
+                             [math.sqrt(2.44), -0.876058, (255, 165, 0)]])
     xi, omega, mean = seif_motion_update(xi, omega, mean, control)
     xi, omega, mean = seif_measurement_update(xi, omega, mean, measurements)
     mean = seif_update_state_estimation(xi, omega, mean)
@@ -488,13 +611,14 @@ if __name__ == "__main__":
     time += 1
     print("Time:", time)
     print("Mean:\n", mean.round(3),"\n")
+    #plot_graph_from_omega(omega.omegaMatrix, mean, active=True, connections=True)
 
 
     control = (2, 0)
     measurements = np.array([[math.sqrt(1), math.pi / 2, (255, 165, 0)],
                              [math.sqrt(2), math.pi / 4, (255, 255, 0)],
                              [math.sqrt(2), -math.pi / 4, (0, 0, 255)],
-                             [math.sqrt(1), -math.pi / 2, (255, 165, 0)]])
+                             [math.sqrt(1.8), -math.pi / 2, (255, 165, 0)]])
     xi, omega, mean = seif_motion_update(xi, omega, mean, control)
     xi, omega, mean = seif_measurement_update(xi, omega, mean, measurements)
     mean = seif_update_state_estimation(xi, omega, mean)
@@ -504,5 +628,14 @@ if __name__ == "__main__":
     print("Mean:\n", mean.round(3),"\n")
 
     print((np.linalg.inv(omega.omegaMatrix) @ xi.xiVector).round(2))
-    breakpoint()
-    seif_correspondence_test(omega, xi, mean, 0, 1)
+    #plot_graph_from_omega(omega.omegaMatrix, mean, active=True, connections=True)
+    #plot_graph_from_omega(omega.omegaMatrix, mean, active=False, connections=True)
+
+
+
+    np.set_printoptions(precision=2, suppress=True)
+    print(omega.omegaMatrix)
+    np.savetxt("omega.csv", omega.omegaMatrix, fmt='%   1.3f', delimiter=",")
+    # breakpoint()
+    #seif_correspondence_test(omega, xi, mean, 1, 2)
+    seif_correspondence_test(omega, xi, mean, 3, 15)
