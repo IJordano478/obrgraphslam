@@ -95,15 +95,10 @@ class Graph():
 #gs_linearize([1,2,3,4],[12,65,900],"c","mean")
 
 
-A = np.ones((9,9))
+gaussian = multivariate_normal.pdf(0, np.array([0,0]), np.array([[1,0],[0,1]]))
+print(gaussian)
 
-B = np.diag([0,0,0,1,1,0,0,0,0])
 
-C = np.array([[0,0,0,1,0,0,0,0,0],
-              [0,0,0,0,1,0,0,0,0]])
-
-print(A)
-print(A@C.transpose())
 '''
 xyab = transformationMat(1, 2, 0)
 xya1 = transformationMat(2, 2, 0)
