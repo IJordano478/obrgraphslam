@@ -185,13 +185,20 @@ class Omega2:
         return
 
     def showOmegaOccupancy(self):
-        mat = np.zeros((self.nPoses + self.nLmarks + 1, self.nPoses + self.nLmarks + 1), dtype=int)
-        for x in range(0, self.nPoses + self.nLmarks+1):
-            for y in range(0, self.nPoses + self.nLmarks+1):
-                if np.allclose(self.omegaMatrix[x*3:(x+1)*3,y*3:(y+1)*3], np.zeros(3)):
-                    mat[x,y] = 0
-                else:
-                    mat[x,y] = 1
+        size = ((self.omegaMatrix.shape[0]-3)//2 + 1, (self.omegaMatrix.shape[0]-3)//2 + 1)
+        mat = np.zeros(size, dtype=int)
+        if not np.allclose(self.omegaMatrix[0:3, 0:3], np.zeros((3, 3))):
+            mat[0, 0] = 1
+
+        for c in range(3, self.omegaMatrix.shape[0], 2):
+            if not np.allclose(self.omegaMatrix[0:3, c:c+2], np.zeros((3, 2))):
+                mat[0, (c - 3) // 2 + 1] = 1
+                mat[(c - 3) // 2 + 1, 0] = 1
+
+        for c in range(3, self.omegaMatrix.shape[0], 2):
+            for r in range(3, self.omegaMatrix.shape[0], 2):
+                if not np.allclose(self.omegaMatrix[r:r+2,c:c+2], np.zeros((2,2))):
+                    mat[(r - 3) // 2 + 1, (c - 3) // 2 + 1] = 1
 
         print(mat)
         return
