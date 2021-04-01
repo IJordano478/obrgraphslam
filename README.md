@@ -9,12 +9,14 @@ Contains 2 parts, the offline graphSLAM (semi-discontinued) and online SEIF (cur
 Current status:
  - Working methods for a known correspondence SEIF
  - Allows repeated calls of methods
+ - Unknown correspondence version 1 designed but not included
+ - python simulator allows real-time simulation of algorithm
+ - SEIF for ROS2 included
+ 
  
 
 TODO:
  - Adapt code to include signiture of landmark in decision making
- - Design unknown correspondence method
- - Adapt code for a single loop for the SEIF algorithm, allowing passing of data through global variables
- - Tie in to simulation
- - Improve efficiency of code, python matrix manipulation renders the use of projection matrices redundant and will 
- improve calculation speeds
+ - Improve efficiency of code, some functions are still inverting large matrices, causing code to run slowly with large numbers of landmarks
+ - Correct GPS sensor fusion error in measurements
+ - Design better result plotter, currently componentTester.py generates graphs from a .csv file, results should be displayed after program finishes
