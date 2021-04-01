@@ -2,7 +2,8 @@ from src.simulation.Track import Track, plotTrack, loadTrack
 from src.simulation.variables import *
 from src.simulation.driving_commands import *
 from src.simulation.sim_world import *
-from src.simulation.componentTester import *
+#from src.simulation.componentTester import *
+from src.SEIF import SEIF
 from matplotlib import pyplot as plt
 #from terminal_reader import
 
@@ -16,6 +17,9 @@ import time
 m = loadTrack("Oval.csv")
 currentPose = transformationMat(0,0,0)
 TargetPose = transformationMat(0,0,0)
+landmarks = np.array([])
+poseTruth = np.empty((0, 2))
+poseEstimate = np.empty((0, 2))
 
 #Plots the OBR car in matplot
 def plotRobot(pos: np.array, colour="orange", existingPlot=None):
@@ -55,9 +59,13 @@ def plotLandmark(cone: Cone, color="orange", existingPlot=None):
         line = plt.plot(xy[0, :], xy[1, :], cone.colour)
         return line[0]
 
+
 #Keeps updating the same matplot until the program ends
 def runPlotLoop(simWorld: SimWorld, finished):
     global particles
+    global landmarks
+    global poseEstimate
+    global poseTruth
 
     # create plot
     plt.ion()
@@ -73,9 +81,15 @@ def runPlotLoop(simWorld: SimWorld, finished):
 
     robotPlot = plotRobot(simWorld.sim_get_pos())
     plt.pause(0.01)
+
     landmarkPlots = []
     for i in range(0, len(simWorld._cone_visibility)):
         landmarkPlots.append(plotLandmark(simWorld._cone_visibility[i]))
+
+    landmarkPlotsFromRobot = []
+    for i in range(0, landmarks.shape[0], 2):
+        landmarkPlotsFromRobot.append(plt.plot(landmarks[i, 0], landmarks[i+1, 0], marker="x", color="r"))
+
     plt.pause(0.01)
     # main loop
     t = 0
@@ -86,6 +100,18 @@ def runPlotLoop(simWorld: SimWorld, finished):
         for i in range(0, len(simWorld._cone_visibility)):
             plotLandmark(simWorld._cone_visibility[i], existingPlot=landmarkPlots[i])
 
+        landmarkPlotsFromRobot = []
+        for i in range(0, landmarks.shape[0], 2):
+           landmarkPlotsFromRobot.append(plt.plot(landmarks[i, 0], landmarks[i + 1, 0], marker="x", color="r"))
+
+        #if poseEstimate.shape[0] != 0:
+        #    plt.plot(poseEstimate[:, 0], poseEstimate[:, 1], "-g", label="Estimated Path")
+        #    plt.plot(poseTruth[:, 0], poseTruth[:, 1], "-k", label="True Path")
+
+        #plt.legend()
+        plt.title('Visualizing Vehicle State')
+        plt.xlabel('X distance (m)')
+        plt.ylabel('Y distance (m)')
         plt.draw()
         plt.pause(0.01)
         time.sleep(0.01)
@@ -109,11 +135,11 @@ def runDriveLoop(simWorld: SimWorld, finished):
         "G": transformationMat(8, 4,  math.pi/2),
         "H": transformationMat(8, 9, math.pi/2)}
     currentTarget = pathNodes["A"]
-    time.sleep(5)
+    time.sleep(20)
 
-    graphSLAM = Graph()
-    graphSLAM.addNode(currentPose)
-    graphSLAM.recentNode = graphSLAM.getAllNodes()[0]
+    #graphSLAM = Graph()
+    #graphSLAM.addNode(currentPose)
+    #graphSLAM.recentNode = graphSLAM.getAllNodes()[0]
 
     # main loop
     while (True):
@@ -132,14 +158,14 @@ def runDriveLoop(simWorld: SimWorld, finished):
         #print("Speed:", simWorld.sensor_left_speed(), ",", simWorld.sensor_right_speed())
         #print("Cones:", simWorld.sensor_camera())
 
-        relativePrevNode = np.matmul(np.linalg.inv(graphSLAM.recentNode.getPose()), currentPose)
-        relativeX = relativePrevNode[0,2]
-        relativeY = relativePrevNode[1,2]
-        relativeA = get2DMatAngle(relativePrevNode)
-        if (relativeX>0.5) or (relativeY>0.5) or (relativeA>0.5):
-            graphSLAM.addNode(currentPose, graphSLAM.recentNode.getPose())
-            graphSLAM.recentNode = graphSLAM.recentNode = graphSLAM.getAllNodes()[-1]
-        print(len(graphSLAM.getAllNodes()))
+        #relativePrevNode = np.matmul(np.linalg.inv(graphSLAM.recentNode.getPose()), currentPose)
+        #relativeX = relativePrevNode[0,2]
+        #relativeY = relativePrevNode[1,2]
+        #relativeA = get2DMatAngle(relativePrevNode)
+        #if (relativeX>0.5) or (relativeY>0.5) or (relativeA>0.5):
+        #    graphSLAM.addNode(currentPose, graphSLAM.recentNode.getPose())
+        #    graphSLAM.recentNode = graphSLAM.recentNode = graphSLAM.getAllNodes()[-1]
+        #print(len(graphSLAM.getAllNodes()))
 
         # Set route
         relativeTarget = np.matmul(np.linalg.inv(currentPose), currentTarget)
@@ -155,11 +181,63 @@ def runDriveLoop(simWorld: SimWorld, finished):
     simWorld.drive_wheel_motors(0, 0)
     print("finished")
 
+
+def run_seif(w: SimWorld, finished):
+    global landmarks
+    global poseEstimate
+    global poseTruth
+
+    # ==INIT==
+    waitTime = 0.2
+    seif = SEIF(10)
+    seif.mean = np.array([[8., 5., math.pi / 2]]).transpose()
+    seif.xi.xiVector[0:3] = seif.mean
+
+    #time.sleep(2)
+
+    while not finished.is_set():
+        t0 = time.time()
+
+        imu = w.sensor_imu()
+        gps = w.sensor_gps()
+        measurements = w.sensor_camera()
+        print("imu:", imu)
+        print(seif.mean[0:3])
+        print("gps:", gps)
+        #print("camera:", measurements)
+        poseTruth = np.concatenate((poseTruth, np.array([[gps[0], gps[1]]])), axis=0)
+        poseEstimate = np.concatenate((poseEstimate, seif.mean[0:2, :].transpose()), axis=0)
+
+        t0 = time.time()
+        seif.seif_motion_update(imu, waitTime)
+        seif.gnss_update(np.array([[gps[0]], [gps[1]]]))
+        t1 = time.time()
+        seif.seif_measurement_update(measurements)
+        t2 = time.time()
+        seif.seif_update_state_estimation()
+        t3 = time.time()
+        seif.seif_sparsification()
+        t4 = time.time()
+        print("td1:",t1-t0,"\ntd2:",t2-t1,"\ntd3:",t3-t2,"\ntd4:",t4-t3)
+        np.savetxt("omega.csv", seif.omega.omegaMatrix, fmt='%   1.3f', delimiter=",")
+        np.savetxt("xi.csv", seif.xi.xiVector, fmt='%   1.3f', delimiter=",")
+        np.savetxt("mean.csv", seif.mean, fmt='%   1.3f', delimiter=",")
+        landmarks = seif.mean[3:]
+
+        # simulate the rest of the timestep if code is too fast
+        t1 = time.time()
+        timeTaken = t1 - t0
+        if timeTaken < waitTime:
+            time.sleep(waitTime - timeTaken)
+
+
+
 #Create the threads to run everything
 def cozmo_program(simWorld: SimWorld):
     finished = threading.Event()
     print("Starting simulation. Press Q to exit", end="\r\n")
     threading.Thread(target=runWorld, args=(simWorld, finished)).start()
+    threading.Thread(target=run_seif, args=(simWorld, finished)).start()
     #threading.Thread(target=WaitForChar, args=(finished, '[Qq]')).start() #TODO ...perhaps
     threading.Thread(target=runDriveLoop, args=(simWorld, finished)).start()
     # running the plot loop in a thread is not thread-safe because matplotlib

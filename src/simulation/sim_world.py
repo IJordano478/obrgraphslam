@@ -138,33 +138,54 @@ class SimWorld:
 
     def sensor_left_speed(self):
         if random.random() < 0.05:
-             return 0
-        return round(float(self._s1),3)
+            return 0
+        return round(float(self._s1), 3)
 
     def sensor_right_speed(self):
         if random.random() < 0.05:
-             return 0
-        return round(float(self._s2),3)
+            return 0
+        return round(float(self._s2), 3)
 
     def sensor_gps(self):
-        if random.random() < 0.05:
-             return [self._pos[0,2]+random.randint(-10,10), self._pos[1,2]+random.randint(-10,10)]
-        return [self._pos[0,2], self._pos[1,2]]
+        #if random.random() < 0.05:
+        #    return [self._pos[0, 2]+random.randint(-10, 10), self._pos[1, 2]+random.randint(-10, 10)]
+        return [self._pos[0, 2], self._pos[1, 2]]
 
     def sensor_imu(self):
-        #TODO I'll sort this out when I know what our IMU will do
-        return 0
+        w = (self._s2 - self._s1)/conf_wheelDistance
+        v = (self._s1 + self._s2)/2
+
+        #low noise is chance: 0.05, dist: -pi/8 to pi/8
+        #med noise is chance: 1, dist: -pi/8 to pi/8
+        #med noise is chance: 1, dist: -pi/4 to pi/4
+        if random.random() < 1:
+            w += random.uniform(-math.pi/8, math.pi/8)
+        if random.random() < 1:
+            v = 0
+        return [v, w]
 
     def sensor_camera(self):
         detected = np.array([])
         for cone in self._cone_visibility:
             if(cone.visible==True):
+                deltax = cone.pos[0, 2]-self._pos[0, 2]
+                deltay = cone.pos[1, 2]-self._pos[1, 2]
+                range = math.sqrt(deltax**2 + deltay**2)
+                bearing = math.atan2(deltay, deltax) - get2DMatAngle(self._pos[0:2,0:2])
+                signature = cone.colour
+
+                while bearing > math.pi:
+                    bearing -= 2 * math.pi
+                while bearing < -math.pi:
+                    bearing += 2 * math.pi
+
                 if detected.size == 0:
-                    detected = np.array([[cone.pos[0,2]],[cone.pos[1,2]]])
-                    #print(detected)
+                    # detected = np.array([[cone.pos[0,2]],[cone.pos[1,2]]])
+                    detected = np.array([[range, bearing, signature]])
                 else:
-                    new = np.array([[cone.pos[0, 2]], [cone.pos[1, 2]]])
-                    detected = np.concatenate((detected,new), axis=1)
+                    # new = np.array([[cone.pos[0, 2]], [cone.pos[1, 2]]])
+                    # detected = np.concatenate((detected,new), axis=1)
+                    detected = np.concatenate((detected, np.array([[range, bearing, signature]])), axis=0)
         return detected
 
 
