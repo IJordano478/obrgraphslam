@@ -208,25 +208,28 @@ for i in range(3, mean.shape[0], 2):
 # print(x)
 # print(y)
 fig, ax = plt.subplots(figsize=(10, 10))
-axes = plt.gca()
-axes.set_xlim([0, 10])
-axes.set_ylim([0, 18])
+#axes = plt.gca()
+#axes.set_xlim([0, 10])
+#axes.set_ylim([0, 18])
+plt.axis("equal")
+
+ax.scatter(x, y, marker="x", label="Cone Positons", color="Red", s=50, linewidth=2, zorder=10)
+ax.scatter(mean[0, 0], mean[1, 0], label="Car", marker="o", linewidths=10, color="orange", zorder=10)
 
 if connections:
     for r in range(3, omega.shape[0], 2):
         for c in range(3, omega.shape[0], 2):
             if not np.allclose(omega[r:r + 2, c:c + 2], np.zeros((2, 2))):
-                plt.plot([mean[r, 0], mean[c, 0]], [mean[r + 1, 0], mean[c + 1, 0]], color="Black", lw=1)
+                plt.plot([mean[r, 0], mean[c, 0]], [mean[r + 1, 0], mean[c + 1, 0]], color="Black", lw=0.25)
 
 if active:
     for i in range(3, omega.shape[0], 2):
         if not np.allclose(omega[0:3, i:i + 2], np.zeros((3, 2))):
             plt.plot([mean[0, 0], mean[i, 0]], [mean[1, 0], mean[i + 1, 0]], color="Red")
 
-ax.scatter(x, y, marker="*", label="Cone Positons")
-ax.scatter(mean[0, 0], mean[1, 0], marker="o")
+
 plt.legend()
-plt.title('Omega Graph Links')
+plt.title('Track visualisation')
 plt.xlabel('X distance (m)')
 plt.ylabel('Y distance (m)')
 
@@ -234,4 +237,15 @@ if holdprogram:
     plt.show()
 else:
     plt.show(block=False)
+'''
+'''
+########SHOW NEW TRACK###########
+m = loadTrack("track2.csv")
+plt.ion()
+plt.figure()
+plt.show()
+fig = plt.figure(figsize=(8, 8))
+ax = fig.add_subplot(1, 1, 1, aspect=1)
+plotTrack(ax, m, True)
+plt.pause(100)
 '''

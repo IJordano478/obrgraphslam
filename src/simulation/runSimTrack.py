@@ -14,7 +14,8 @@ import threading
 import time
 
 # this data structure represents the map
-m = loadTrack("Oval.csv")
+#m = loadTrack("Oval.csv")
+m = loadTrack("track2.csv")
 currentPose = transformationMat(0,0,0)
 TargetPose = transformationMat(0,0,0)
 landmarks = np.array([])
@@ -72,19 +73,19 @@ def runPlotLoop(simWorld: SimWorld, finished):
     plt.figure()
     plt.show()
     fig = plt.figure(figsize=(8, 8))
-    ax = fig.add_subplot(1, 1, 1, aspect=1)
+    #ax = fig.add_subplot(1, 1, 1, aspect=1)
+    plt.axis("equal")
+    #ax.set_xlim(m.minX, m.maxX)
+    #ax.set_ylim(m.minY, m.maxY)
 
-    ax.set_xlim(m.minX, m.maxX)
-    ax.set_ylim(m.minY, m.maxY)
-
-    plotTrack(ax, m, True)
+    #plotTrack(ax, m, True)
 
     robotPlot = plotRobot(simWorld.sim_get_pos())
     plt.pause(0.01)
 
-    landmarkPlots = []
-    for i in range(0, len(simWorld._cone_visibility)):
-        landmarkPlots.append(plotLandmark(simWorld._cone_visibility[i]))
+    #landmarkPlots = []
+    #for i in range(0, len(simWorld._cone_visibility)):
+    #    landmarkPlots.append(plotLandmark(simWorld._cone_visibility[i]))
 
     landmarkPlotsFromRobot = []
     for i in range(0, landmarks.shape[0], 2):
@@ -97,8 +98,8 @@ def runPlotLoop(simWorld: SimWorld, finished):
         # update plot
         plotRobot(simWorld.sim_get_pos(), existingPlot=robotPlot)
         plt.pause(0.01)
-        for i in range(0, len(simWorld._cone_visibility)):
-            plotLandmark(simWorld._cone_visibility[i], existingPlot=landmarkPlots[i])
+        #for i in range(0, len(simWorld._cone_visibility)):
+        #    plotLandmark(simWorld._cone_visibility[i], existingPlot=landmarkPlots[i])
 
         landmarkPlotsFromRobot = []
         for i in range(0, landmarks.shape[0], 2):
@@ -125,6 +126,7 @@ def runDriveLoop(simWorld: SimWorld, finished):
     #The points that the car will follow. If you load in your own track be sure to change these to match it. Also be
     #mindful of rotation (in radians). **ALSO** as using a spline technique for driving, weird things may happen in
     #some situations so if occurs just move the points very slightly (singularities occur annoyingly often)
+    '''
     pathNodes = {
         "A": transformationMat(8, 14, math.pi/2),
         "B": transformationMat(5, 16, math.pi),
@@ -134,8 +136,18 @@ def runDriveLoop(simWorld: SimWorld, finished):
         "F": transformationMat(5, 2,  math.pi*2),
         "G": transformationMat(8, 4,  math.pi/2),
         "H": transformationMat(8, 9, math.pi/2)}
+    '''
+    pathNodes = {
+        "A": transformationMat(8, 14, math.pi / 2),
+        "B": transformationMat(5, 16, math.pi),
+        "C": transformationMat(2, 14, math.pi * 3 / 2),
+        "D": transformationMat(4, 9, math.pi * 3 / 2),
+        "E": transformationMat(2, 4, math.pi * 3 / 2),
+        "F": transformationMat(5, 2, math.pi * 2),
+        "G": transformationMat(8, 4, math.pi / 2),
+        "H": transformationMat(8, 9, math.pi / 2)}
     currentTarget = pathNodes["A"]
-    time.sleep(20)
+    time.sleep(10)
 
     #graphSLAM = Graph()
     #graphSLAM.addNode(currentPose)
@@ -191,7 +203,7 @@ def run_seif(w: SimWorld, finished):
     waitTime = 0.2
     seif = SEIF(10)
     seif.mean = np.array([[8., 5., math.pi / 2]]).transpose()
-    seif.xi.xiVector[0:3] = seif.mean
+    seif.xi.xi_vector[0:3] = seif.mean
 
     #time.sleep(2)
 
@@ -201,16 +213,16 @@ def run_seif(w: SimWorld, finished):
         imu = w.sensor_imu()
         gps = w.sensor_gps()
         measurements = w.sensor_camera()
-        print("imu:", imu)
-        print(seif.mean[0:3])
-        print("gps:", gps)
+        #print("imu:", imu)
+        #print(seif.mean[0:3])
+        #print("gps:", gps)
         #print("camera:", measurements)
         poseTruth = np.concatenate((poseTruth, np.array([[gps[0], gps[1]]])), axis=0)
         poseEstimate = np.concatenate((poseEstimate, seif.mean[0:2, :].transpose()), axis=0)
 
         t0 = time.time()
         seif.seif_motion_update(imu, waitTime)
-        seif.gnss_update(np.array([[gps[0]], [gps[1]]]))
+        #seif.gnss_update(np.array([[gps[0]], [gps[1]]]))
         t1 = time.time()
         seif.seif_measurement_update(measurements)
         t2 = time.time()
@@ -218,10 +230,12 @@ def run_seif(w: SimWorld, finished):
         t3 = time.time()
         seif.seif_sparsification()
         t4 = time.time()
-        print("td1:",t1-t0,"\ntd2:",t2-t1,"\ntd3:",t3-t2,"\ntd4:",t4-t3)
-        np.savetxt("omega.csv", seif.omega.omegaMatrix, fmt='%   1.3f', delimiter=",")
-        np.savetxt("xi.csv", seif.xi.xiVector, fmt='%   1.3f', delimiter=",")
-        np.savetxt("mean.csv", seif.mean, fmt='%   1.3f', delimiter=",")
+        #print("td1:",t1-t0,"\ntd2:",t2-t1,"\ntd3:",t3-t2,"\ntd4:",t4-t3)
+        if(t4-t0 > 0.5): print("Time exceeded expected: ",t4-t0)
+        #np.savetxt("omega.csv", seif.omega.omega_matrix, fmt='%   1.3f', delimiter=",")
+        #np.savetxt("xi.csv", seif.xi.xi_vector, fmt='%   1.3f', delimiter=",")
+        #breakpoint()
+        #np.savetxt("mean.csv", seif.mean, fmt='%   1.3f', delimiter=",")
         landmarks = seif.mean[3:]
 
         # simulate the rest of the timestep if code is too fast

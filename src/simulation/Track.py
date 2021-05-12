@@ -83,6 +83,7 @@ def plotTrack(ax, t: Track, gridOn, color="blue"):
         tick = 0.5
         numX = abs(maxX-minX)
         numY = abs(maxY-minY)
+
         for xIndex in range(0, math.ceil(numX/tick) + 1):
             x = minX + xIndex * tick
             bold = 0.8 if (xIndex - 1) % 5 == 0 else 0.4

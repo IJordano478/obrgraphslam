@@ -3,7 +3,7 @@ import math
 
 #==Declare sim program variables==
 #sim_world
-conf_cameraAngle = 90
+conf_cameraAngle = 30
 conf_cameraMinD = 0.5
 conf_cameraMinTol = 0.25
 conf_cameraMaxD = 5

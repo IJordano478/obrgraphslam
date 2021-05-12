@@ -158,9 +158,9 @@ class SimWorld:
         #low noise is chance: 0.05, dist: -pi/8 to pi/8
         #med noise is chance: 1, dist: -pi/8 to pi/8
         #med noise is chance: 1, dist: -pi/4 to pi/4
-        if random.random() < 1:
+        if random.random() < 0.05:
             w += random.uniform(-math.pi/8, math.pi/8)
-        if random.random() < 1:
+        if random.random() < 0.05:
             v = 0
         return [v, w]
 
