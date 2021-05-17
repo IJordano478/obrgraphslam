@@ -72,7 +72,7 @@ def runPlotLoop(simWorld: SimWorld, finished):
     plt.ion()
     plt.figure()
     plt.show()
-    fig = plt.figure(figsize=(8, 8))
+    fig = plt.figure(figsize=(5, 5))
     #ax = fig.add_subplot(1, 1, 1, aspect=1)
     plt.axis("equal")
     #ax.set_xlim(m.minX, m.maxX)
@@ -88,7 +88,7 @@ def runPlotLoop(simWorld: SimWorld, finished):
     #    landmarkPlots.append(plotLandmark(simWorld._cone_visibility[i]))
 
     landmarkPlotsFromRobot = []
-    for i in range(0, landmarks.shape[0], 2):
+    for i in range(0, landmarks.shape[0], 3):
         landmarkPlotsFromRobot.append(plt.plot(landmarks[i, 0], landmarks[i+1, 0], marker="x", color="r"))
 
     plt.pause(0.01)
@@ -102,7 +102,7 @@ def runPlotLoop(simWorld: SimWorld, finished):
         #    plotLandmark(simWorld._cone_visibility[i], existingPlot=landmarkPlots[i])
 
         landmarkPlotsFromRobot = []
-        for i in range(0, landmarks.shape[0], 2):
+        for i in range(0, landmarks.shape[0], 3):
            landmarkPlotsFromRobot.append(plt.plot(landmarks[i, 0], landmarks[i + 1, 0], marker="x", color="r"))
 
         #if poseEstimate.shape[0] != 0:
@@ -200,15 +200,18 @@ def run_seif(w: SimWorld, finished):
     global poseTruth
 
     # ==INIT==
-    waitTime = 0.2
+    waitTime = 1
     seif = SEIF(10)
     seif.mean = np.array([[8., 5., math.pi / 2]]).transpose()
-    seif.xi.xi_vector[0:3] = seif.mean
+    seif.omega.omega_matrix = np.array([[10000000, 0, 0],
+                                        [0, 10000000, 0],
+                                        [0, 0, 10000000]])
+    seif.xi.xi_vector[0:3] = seif.omega.omega_matrix @ seif.mean
 
     #time.sleep(2)
-
+    i = 0
     while not finished.is_set():
-        t0 = time.time()
+        tstart = time.time()
 
         imu = w.sensor_imu()
         gps = w.sensor_gps()
@@ -216,6 +219,7 @@ def run_seif(w: SimWorld, finished):
         #print("imu:", imu)
         #print(seif.mean[0:3])
         #print("gps:", gps)
+        #print("pos:", seif.mean[0:3])
         #print("camera:", measurements)
         poseTruth = np.concatenate((poseTruth, np.array([[gps[0], gps[1]]])), axis=0)
         poseEstimate = np.concatenate((poseEstimate, seif.mean[0:2, :].transpose()), axis=0)
@@ -224,23 +228,32 @@ def run_seif(w: SimWorld, finished):
         seif.seif_motion_update(imu, waitTime)
         #seif.gnss_update(np.array([[gps[0]], [gps[1]]]))
         t1 = time.time()
+        #breakpoint()
         seif.seif_measurement_update(measurements)
+        #print("active:", seif.active)
         t2 = time.time()
         seif.seif_update_state_estimation()
         t3 = time.time()
+        #print("Deactivating:", seif.to_deactivate)
         seif.seif_sparsification()
         t4 = time.time()
-        #print("td1:",t1-t0,"\ntd2:",t2-t1,"\ntd3:",t3-t2,"\ntd4:",t4-t3)
-        if(t4-t0 > 0.5): print("Time exceeded expected: ",t4-t0)
-        #np.savetxt("omega.csv", seif.omega.omega_matrix, fmt='%   1.3f', delimiter=",")
-        #np.savetxt("xi.csv", seif.xi.xi_vector, fmt='%   1.3f', delimiter=",")
+        #print("active_final:", seif.active)
+        print("At N =",(seif.omega.omega_matrix.shape[0]-seif.rss)/seif.lss)
+        print("td1:", t1-t0, "\ntd2:", t2-t1, "\ntd3:", t3-t2, "\ntd4:", t4-t3, "\ntot:", t4-t0, "\n\n")
+        #if(t4-t0 > 0.5): print("Time exceeded expected: ",t4-t0)
+
         #breakpoint()
+
+        #if len(seif.to_deactivate) > 0: breakpoint()
+        np.savetxt("omega.csv", seif.omega.omega_matrix, fmt='%   1.3f', delimiter=",")
+        # np.savetxt("omega_inv.csv", np.linalg.inv(seif.omega.omega_matrix), fmt='%   1.3f', delimiter=",")
+        np.savetxt("xi.csv", seif.xi.xi_vector, fmt='%   1.3f', delimiter=",")
         #np.savetxt("mean.csv", seif.mean, fmt='%   1.3f', delimiter=",")
         landmarks = seif.mean[3:]
 
         # simulate the rest of the timestep if code is too fast
-        t1 = time.time()
-        timeTaken = t1 - t0
+        tend = time.time()
+        timeTaken = tend - tstart
         if timeTaken < waitTime:
             time.sleep(waitTime - timeTaken)
 

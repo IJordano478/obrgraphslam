@@ -140,7 +140,7 @@ plt.scatter(x, y, marker="x")
 plt.show()
 '''
 
-
+'''
 #########SHOW ONLY CONE POSITIONS FROM A MEAN VECTOR############
 x = np.empty((0,1))
 y = np.empty((0,1))
@@ -176,12 +176,12 @@ plt.ylabel('Y distance (m)')
 plt.axis("equal")
 plt.grid(True)
 plt.pause(100)
-
-
-
 '''
+
+
+
 #########SHOW LINKS GIVEN OMEGA AND XI############
-active = False
+active = True
 connections = True
 holdprogram = True
 xi = np.loadtxt(open("xi.csv", "rb"), delimiter=",")
@@ -190,41 +190,63 @@ xi = np.expand_dims((xi), axis=1)
 #xi = [np.array(arr) for arr in temp[:, np.newaxis]]
 omega = np.loadtxt(open("omega.csv", "rb"), delimiter=",")
 
-if type(omega) == Omega2:
+if type(omega) == Omega:
     omega = omega.omegaMatrix
 
 if type(xi) == Xi:
     xi = xi.xiVector
 
 mean = np.linalg.pinv(omega) @ xi
+print(np.round(mean, 3))
 
-x = np.array([])
-y = np.array([])
+blue_x = np.array([])
+blue_y = np.array([])
+yellow_x = np.array([])
+yellow_y = np.array([])
+orange_x = np.array([])
+orange_y = np.array([])
+other_x = np.array([])
+other_y = np.array([])
 
-for i in range(3, mean.shape[0], 2):
-    x = np.append(x, mean[i, 0])
-    y = np.append(y, mean[i + 1, 0])
+fig, ax = plt.subplots(figsize=(10, 10))
+
+for i in range(3, mean.shape[0], 3):
+    if(abs(mean[i + 2, 0]-1) < 0.05):
+        blue_x = np.append(blue_x, mean[i, 0])
+        blue_y = np.append(blue_y, mean[i + 1, 0])
+    elif (abs(mean[i + 2, 0] - 2) < 0.05):
+        yellow_x = np.append(yellow_x, mean[i, 0])
+        yellow_y = np.append(yellow_y, mean[i + 1, 0])
+    elif (abs(mean[i + 2, 0] - 3) < 0.05):
+        orange_x = np.append(orange_x, mean[i, 0])
+        orange_y = np.append(orange_y, mean[i + 1, 0])
+    else:
+        other_x = np.append(other_x, mean[i, 0])
+        other_y = np.append(other_y, mean[i + 1, 0])
 
 # print(x)
 # print(y)
-fig, ax = plt.subplots(figsize=(10, 10))
+
 #axes = plt.gca()
 #axes.set_xlim([0, 10])
 #axes.set_ylim([0, 18])
 plt.axis("equal")
 
-ax.scatter(x, y, marker="x", label="Cone Positons", color="Red", s=50, linewidth=2, zorder=10)
+ax.scatter(blue_x, blue_y, marker="x", label="Blue cones", color="Blue", s=50, linewidth=2, zorder=10)
+ax.scatter(yellow_x, yellow_y, marker="x", label="Yellow cones", color="Yellow", s=50, linewidth=2, zorder=10)
+ax.scatter(orange_x, orange_y, marker="x", label="Orange cones", color="Orange", s=50, linewidth=2, zorder=10)
+ax.scatter(other_x, other_y, marker="x", label="Unknown cones", color="Red", s=50, linewidth=2, zorder=10)
 ax.scatter(mean[0, 0], mean[1, 0], label="Car", marker="o", linewidths=10, color="orange", zorder=10)
 
 if connections:
-    for r in range(3, omega.shape[0], 2):
-        for c in range(3, omega.shape[0], 2):
+    for r in range(3, omega.shape[0], 3):
+        for c in range(3, omega.shape[0], 3):
             if not np.allclose(omega[r:r + 2, c:c + 2], np.zeros((2, 2))):
                 plt.plot([mean[r, 0], mean[c, 0]], [mean[r + 1, 0], mean[c + 1, 0]], color="Black", lw=0.25)
 
 if active:
-    for i in range(3, omega.shape[0], 2):
-        if not np.allclose(omega[0:3, i:i + 2], np.zeros((3, 2))):
+    for i in range(3, omega.shape[0], 3):
+        if not np.allclose(omega[0:3, i:i + 3], np.zeros((3, 3))):
             plt.plot([mean[0, 0], mean[i, 0]], [mean[1, 0], mean[i + 1, 0]], color="Red")
 
 
@@ -237,7 +259,8 @@ if holdprogram:
     plt.show()
 else:
     plt.show(block=False)
-'''
+
+
 '''
 ########SHOW NEW TRACK###########
 m = loadTrack("track2.csv")

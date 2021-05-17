@@ -26,14 +26,14 @@ from collections import deque
 class SEIF():
     def __init__(self, sparsity_n):
         self.rss = 3  # Robot state size: {x,y,theta}
-        self.lss = 2  # Landmark state size: {x,y,colour}
+        self.lss = 3  # Landmark state size: {x,y,colour}
         self.omega = Omega(rss=self.rss, lss=self.lss)
         self.xi = Xi()
         self.mean = np.array([[0., 0., 0]]).transpose()
 
-        self.motion_noise_covariance = [1. ** 2, 1. ** 2, 1. ** 2]
-        self.measure_noise_covariance = [1. ** 2, 1. ** 2]
-        self.gnss_noise_covariance = [0.1 ** 2, 0.1 ** 2]
+        self.motion_noise_covariance = [.001 ** 2, .001 ** 2, .001 ** 2]
+        self.measure_noise_covariance = [.1 ** 2, .1 ** 2, .00001 ** 2]
+        self.gnss_noise_covariance = [.001 ** 2, .001 ** 2]
         self.noise_covariance_r = np.diag(self.motion_noise_covariance)
         self.noise_covariance_q = np.diag(self.measure_noise_covariance)
         self.gnss_noise_covariance_q = np.diag(self.gnss_noise_covariance)
@@ -42,6 +42,7 @@ class SEIF():
         self.sparsity_n = sparsity_n
         self.active = deque([], maxlen=sparsity_n)
         self.to_deactivate = deque([], maxlen=sparsity_n)
+        self.signature_map = {"Blue": 1, "blue": 1, "Yellow": 2, "yellow": 2, "Orange": 3, "orange": 3}
 
         #fast_motion_update2(np.zeros((3,3)), np.zeros((3,1)), np.zeros((3,1)), np.identity(3), np.zeros((3,3)), np.zeros((3,1)), np.asarray(self.active))
 
@@ -52,9 +53,8 @@ class SEIF():
     #     xi, omega - seif_sparsification(xi, omega)
     #     return xi, omega, mean
 
-
-    #def seif_motion_update(self, xi, omega, mean, control, time_step):
     def seif_motion_update(self, control, time_step):
+
         omega = self.omega.omega_matrix
         xi = self.xi.xi_vector
         mean = self.mean
@@ -67,7 +67,8 @@ class SEIF():
         # Fx_transpose = np.transpose(Fx)
 
         # 3
-        w += 0.0000001  # Singularity avoidance
+        # w += 0.00000000001  # Singularity avoidance
+        w += 1*10**(-10)
         delta = np.array([[-(v / w) * math.sin(mean[2, 0]) + (v / w) * math.sin(mean[2, 0] + w * time_step)],
                           [(v / w) * math.cos(mean[2, 0]) - (v / w) * math.cos(mean[2, 0] + w * time_step)],
                           [w * time_step]])
@@ -81,10 +82,16 @@ class SEIF():
 
         Fx_active = np.zeros((self.rss, omega.shape[0]))
         Fx_active[0:self.rss, 0:self.rss] = np.identity(self.rss)
+        Fx_reducer = np.identity(omega.shape[0])
+        Fx_reducer[0:self.rss, 0:self.rss] = np.zeros(self.rss)
         active = np.sort(active)
         for i in active:
             Fx_active = np.concatenate((Fx_active, np.zeros((self.lss, omega.shape[0]))), axis=0)
-            Fx_active[-self.lss:, self.rss + (self.lss * i):self.rss + (self.lss * i) + self.lss] = np.identity(2)
+            Fx_active[-self.lss:, self.rss + (self.lss * i):self.rss + (self.lss * i) + self.lss] = np.identity(self.lss)
+            Fx_reducer[self.rss + (self.lss * i):self.rss + (self.lss * i) + self.lss, self.rss + (self.lss * i):self.rss + (self.lss * i) + self.lss] = np.zeros((3, 3))
+            #modified_identity = np.identity(self.lss)
+            #modified_identity[-1, -1] = 0.000001
+            #Fx_active[-self.lss:, self.rss + (self.lss * i):self.rss + (self.lss * i) + self.lss] = modified_identity
         omega_active = Fx_active @ omega @ Fx_active.transpose()
 
         Fx = np.concatenate((np.identity(self.rss), np.zeros((self.rss, omega_active.shape[0] - self.rss))), axis=1)
@@ -109,9 +116,16 @@ class SEIF():
 
         # 10
         xi_active = (Fx_active @ xi) + ((lambda_ - kappa) @ (Fx_active @ mean)) + (omega_active @ Fx_transpose @ delta)
+
+        # Method 1: Alternate method for reconstruction below. Uses in-built matrix multiplication
+        # Access efficiency: (RSS + LSS * N)^2
+        # Time analysis showed this method was slower on average than
+        #omega = omega - Fx_active.transpose() @ Fx_active @ omega @ Fx_active.transpose() @ Fx_active + Fx_active.transpose() @ omega_active @ Fx_active
+        #xi = xi - Fx_active.transpose() @ Fx_active @ xi + Fx_active.transpose() @ xi_active
+
+        # Method 2: Index based method for reconstruction. Always accesses at most (RSS + LSS * N_active)^2 elements
         omega[0:self.rss, 0:self.rss] = omega_active[0:self.rss, 0:self.rss]
         xi[0:self.rss, :] = xi_active[0:self.rss, :]
-
         for c in range(0, active.shape[0]):
             lower_r_1 = 0
             upper_r_1 = self.rss
@@ -171,8 +185,9 @@ class SEIF():
         for range_, bearing, signature in measurements:
             range_ = float(range_)
             bearing = float(bearing)
+            signature = self.signature_map[signature]
 
-            z = np.array([[range_], [bearing]])
+            z = np.array([[range_], [bearing], [signature]])
 
             # 4,5,6
             # Take measurement and check it against existing landmarks. If its within a certain distance then assume
@@ -180,6 +195,7 @@ class SEIF():
             # landmark
             mu_j = mean[0:2, :] + range_ * np.array(
                 [[math.cos(bearing + mean[2, 0])], [math.sin(bearing + mean[2, 0])]])
+            mu_j = np.concatenate((mu_j, np.array([[signature]])), axis=0)
 
             # This will likely become a correspondence test
             found = False
@@ -188,7 +204,8 @@ class SEIF():
                 # TODO include signature match
                 x_index = self.rss + self.lss * n
                 y_index = x_index + 1
-                if (mu_j[0, 0] - mean[x_index, 0]) ** 2 + (mu_j[1, 0] - mean[y_index, 0]) ** 2 < 0.25:
+                s_index = x_index + 2
+                if ((mu_j[0, 0] - mean[x_index, 0]) ** 2 + (mu_j[1, 0] - mean[y_index, 0]) ** 2 < 1) and (mean[s_index, 0] == mu_j[2, 0]):
                     mu_j = mean[x_index:x_index+self.lss, :]
                     found = True
                     # print("matched a landmark")
@@ -208,26 +225,29 @@ class SEIF():
                 self.active.append(i)
 
             # 8
-            delta = mu_j - mean[0:2, :]
+            delta = mu_j[0:2, :] - mean[0:2, :]
 
             # 9
             q = (np.transpose(delta) @ delta)[0][0]
 
             # 10
             zhat = np.array([[math.sqrt(q)],
-                             [math.atan2(delta[1, 0], delta[0, 0]) - mean[2, 0]]])
+                             [math.atan2(delta[1, 0], delta[0, 0]) - mean[2, 0]],
+                             [signature]])
 
             zhat[1, :] = (zhat[1, :] + np.pi) % (2 * np.pi) - np.pi
 
             h1 = np.array([[-math.sqrt(q) * delta[0, 0], -math.sqrt(q) * delta[1, 0], 0],
-                           [delta[1, 0], -delta[0, 0], -q]])
+                           [delta[1, 0], -delta[0, 0], -q],
+                           [0, 0, 0]])
 
-            h2 = np.zeros((2, self.lss * i))
+            h2 = np.zeros((3, self.lss * i))
 
-            h3 = np.array([[math.sqrt(q) * delta[0, 0], math.sqrt(q) * delta[1, 0]],
-                           [-delta[1, 0], delta[0, 0]]])
+            h3 = np.array([[math.sqrt(q) * delta[0, 0], math.sqrt(q) * delta[1, 0], 0],
+                           [-delta[1, 0], delta[0, 0], 0],
+                           [0, 0, q]])
 
-            h4 = np.zeros((2, (mean.shape[0] - self.rss) - self.lss * (i + 1)))
+            h4 = np.zeros((3, (mean.shape[0] - self.rss) - self.lss * (i + 1)))
 
             h_it = 1 / q * np.concatenate((h1, h2, h3, h4), axis=1)
 
@@ -244,6 +264,7 @@ class SEIF():
                 new_matrix = np.zeros(omega_update.shape)
                 new_matrix[0:omega.shape[0], 0:omega.shape[0]] = omega
                 omega = new_matrix
+            #breakpoint()
 
             xi += xi_update
             omega += omega_update
@@ -271,7 +292,7 @@ class SEIF():
             Fi3 = np.zeros((self.lss, (mean.shape[0] - self.rss) - self.lss * (i + 1)))
             Fi = np.concatenate((Fi1, Fi2, Fi3), axis=1)
 
-            mean_it = np.linalg.inv(Fi @ omega @ Fi.transpose()) @ Fi @ (
+            mean_it = np.linalg.pinv(Fi @ omega @ Fi.transpose()) @ Fi @ (
                     xi - (omega @ mean) + omega @ Fi.transpose() @ Fi @ mean)
             mean[self.rss + (self.lss * i):self.rss + (self.lss * i) + self.lss, :] = mean_it
 
@@ -295,8 +316,8 @@ class SEIF():
         to_deactivate = np.asarray(self.to_deactivate)
 
         all_indexes = np.sort((np.concatenate((active, to_deactivate), axis=0)).astype(np.int32))
-        np.sort(active)
-        np.sort(to_deactivate)
+        #active = np.sort(active)
+        #to_deactivate = np.sort(to_deactivate)
         omega_size = omega.shape[0]
         omega0Size = self.rss + self.lss * all_indexes.shape[0]
 

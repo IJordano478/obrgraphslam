@@ -12,7 +12,7 @@ class Omega:
 
         a = np.zeros((rss, rss))
         #np.fill_diagonal(a,np.inf)
-        np.fill_diagonal(a, 1)
+        np.fill_diagonal(a, 0)
         self.omega_matrix[0:rss, 0:rss] = a
 
     def showOmegaOccupancy(self):

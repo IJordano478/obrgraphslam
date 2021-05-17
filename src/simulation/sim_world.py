@@ -53,7 +53,7 @@ class SimWorld:
         self._s1 = 0.9 * self._s1 + 0.1 * self._s1Command
         self._s2 = 0.9 * self._s2 + 0.1 * self._s2Command
 
-#Checks each cone based on the angle and distance between them to determine visibility
+    #Checks each cone based on the angle and distance between them to determine visibility
     def _compute_cone_is_visible(self, cone: Cone):
 
         relativePose = np.matmul(np.linalg.inv(self._pos), cone.pos)
@@ -137,18 +137,18 @@ class SimWorld:
 #an area
 
     def sensor_left_speed(self):
-        if random.random() < 0.05:
-            return 0
+        #if random.random() < 0.05:
+        #    return 0
         return round(float(self._s1), 3)
 
     def sensor_right_speed(self):
-        if random.random() < 0.05:
-            return 0
+        #if random.random() < 0.05:
+        #    return 0
         return round(float(self._s2), 3)
 
     def sensor_gps(self):
         #if random.random() < 0.05:
-        #    return [self._pos[0, 2]+random.randint(-10, 10), self._pos[1, 2]+random.randint(-10, 10)]
+        #    return [self._pos[0, 2]+random.uniform(-1, 1), self._pos[1, 2]+random.uniform(-1, 1)]
         return [self._pos[0, 2], self._pos[1, 2]]
 
     def sensor_imu(self):
@@ -158,10 +158,10 @@ class SimWorld:
         #low noise is chance: 0.05, dist: -pi/8 to pi/8
         #med noise is chance: 1, dist: -pi/8 to pi/8
         #med noise is chance: 1, dist: -pi/4 to pi/4
-        if random.random() < 0.05:
-            w += random.uniform(-math.pi/8, math.pi/8)
-        if random.random() < 0.05:
-            v = 0
+        #if random.random() < 0.05:
+        #    w += random.uniform(-math.pi/8, math.pi/8)
+        #if random.random() < 0.05:
+        #    v = 0
         return [v, w]
 
     def sensor_camera(self):
