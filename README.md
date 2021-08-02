@@ -16,7 +16,6 @@ Current status:
  
 
 TODO:
- - Adapt code to include signiture of landmark in decision making
  - Improve efficiency of code, some functions are still inverting large matrices, causing code to run slowly with large numbers of landmarks
  - Correct GPS sensor fusion error in measurements
  - Design better result plotter, currently componentTester.py generates graphs from a .csv file, results should be displayed after program finishes
