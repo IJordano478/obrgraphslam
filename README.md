@@ -19,4 +19,4 @@ TODO:
  - Improve efficiency of code, some functions are still inverting large matrices, causing code to run slowly with large numbers of landmarks
  - Correct GPS sensor fusion error in measurements
  - Design better result plotter, currently componentTester.py generates graphs from a .csv file, results should be displayed after program finishes
- - Markov blanket currently contains all connected nodes to target node. An actual markov blanket would also contain the children of attached nodes
+ - Markov blanket currently contains all connected nodes to target node. An actual markov blanket would also contain the children of attached nodes. MB(X) = Parents(X) OR Children(X) OR Parents(Children(X))
